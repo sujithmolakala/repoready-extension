@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type {
   CheckResult,
   HealthReport,
@@ -90,14 +92,10 @@ export function HealthScoreView({ report }: { report: HealthReport }) {
     <div className="space-y-4">
       <div className="rounded-md border border-slate-800 bg-slate-950/70 p-4">
         <p className="text-xs uppercase tracking-wide text-slate-500">
-          Partial health score
+          Repository Health Score
         </p>
         <p className={`mt-2 text-3xl font-semibold ${tone}`}>
-          {report.totalScore}/{report.maxScore}
-        </p>
-        <p className="mt-2 text-xs text-slate-400">
-          Documentation and Community Standards only (45-point partial report).
-          Four plugin categories are not included yet.
+          {report.totalScore}/100
         </p>
       </div>
 
@@ -130,5 +128,48 @@ export function HealthScoreView({ report }: { report: HealthReport }) {
         </section>
       ) : null}
     </div>
+  );
+}
+
+export function DebugFactsPanel({
+  debugFacts,
+  isLoading = false,
+  error = null,
+}: {
+  debugFacts: object | null;
+  isLoading?: boolean;
+  error?: string | null;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <section className="mt-6 flex min-h-0 flex-1 flex-col rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+      <button
+        className="flex w-full items-center justify-between text-left"
+        onClick={() => {
+          setIsOpen((open) => !open);
+        }}
+        type="button"
+      >
+        <h2 className="text-sm font-medium text-slate-200">
+          Repository facts (development only)
+        </h2>
+        <span className="text-xs text-slate-400">{isOpen ? "Hide" : "Show"}</span>
+      </button>
+
+      {isOpen ? (
+        <>
+          {isLoading ? (
+            <p className="mt-3 text-sm text-slate-400">Collecting repository facts…</p>
+          ) : null}
+          {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
+          {debugFacts ? (
+            <pre className="mt-3 max-h-96 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-300">
+              {JSON.stringify(debugFacts, null, 2)}
+            </pre>
+          ) : null}
+        </>
+      ) : null}
+    </section>
   );
 }

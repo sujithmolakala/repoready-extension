@@ -1,11 +1,14 @@
 import type { RepositoryFacts } from "../models/repositoryFacts";
 import type { HealthReport, HealthPlugin, PluginResult } from "../models/healthReport";
+import { sortAndDedupeRecommendations } from "./recommendation-utils";
 
 export function aggregateHealthReport(
   facts: RepositoryFacts,
   categories: PluginResult[],
 ): HealthReport {
-  const recommendations = categories.flatMap((category) => category.recommendations);
+  const recommendations = sortAndDedupeRecommendations(
+    categories.flatMap((category) => category.recommendations),
+  );
 
   return {
     owner: facts.owner,

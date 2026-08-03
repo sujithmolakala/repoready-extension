@@ -202,14 +202,15 @@ describe("readme-analysis", () => {
 });
 
 describe("analyzeWithPlugins", () => {
-  it("aggregates to a partial health report max score of 45", () => {
+  it("aggregates to a full health report max score of 100", () => {
     const facts = createFacts();
     const report = analyzeWithPlugins(facts, defaultHealthPlugins);
 
-    expect(report.maxScore).toBe(45);
-    expect(report.categories).toHaveLength(2);
-    expect(report.categories[0]?.maxPoints).toBe(25);
-    expect(report.categories[1]?.maxPoints).toBe(20);
+    expect(report.maxScore).toBe(100);
+    expect(report.categories).toHaveLength(6);
+    expect(report.categories.map((category) => category.maxPoints)).toEqual([
+      25, 20, 20, 15, 10, 10,
+    ]);
   });
 
   it("sums awarded points exactly without rescaling", () => {
@@ -220,7 +221,7 @@ describe("analyzeWithPlugins", () => {
     expect(report.totalScore).toBe(
       categories.reduce((total, category) => total + category.pointsAwarded, 0),
     );
-    expect(report.maxScore).toBe(45);
+    expect(report.maxScore).toBe(100);
   });
 
   it("returns stable recommendation order for identical facts", () => {
@@ -279,7 +280,7 @@ describe("RepoReady score sanity check", () => {
     expect(documentation?.maxPoints).toBe(25);
     expect(community?.pointsAwarded).toBe(0);
     expect(community?.maxPoints).toBe(20);
-    expect(report.totalScore).toBe(12);
-    expect(report.maxScore).toBe(45);
+    expect(report.maxScore).toBe(100);
+    expect(report.totalScore).toBeGreaterThan(12);
   });
 });

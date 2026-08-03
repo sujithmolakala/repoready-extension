@@ -1,5 +1,5 @@
 import { useAuthState } from "../shared/hooks/useAuthState";
-import { HealthScoreView } from "./components/HealthScoreView";
+import { DebugFactsPanel, HealthScoreView } from "./components/HealthScoreView";
 import { useHealthReport } from "./useHealthReport";
 import { useRepoState } from "./useRepoState";
 import { useRepositoryFacts } from "./useRepositoryFacts";
@@ -86,7 +86,9 @@ export default function App() {
 
       {showHealthSection ? (
         <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-sm font-medium text-slate-200">Health score</h2>
+          <h2 className="text-sm font-medium text-slate-200">
+            Repository Health Score
+          </h2>
 
           {isHealthLoading || (report === null && healthError === null) ? (
             <p className="mt-3 text-sm text-slate-400">
@@ -102,28 +104,12 @@ export default function App() {
         </section>
       ) : null}
 
-      {repository && authState.authenticated ? (
-        <section className="mt-6 flex min-h-0 flex-1 flex-col rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-sm font-medium text-slate-200">
-            Repository facts (debug)
-          </h2>
-
-          {isFactsLoading || (debugFacts === null && factsError === null) ? (
-            <p className="mt-3 text-sm text-slate-400">
-              Collecting repository facts…
-            </p>
-          ) : null}
-
-          {factsError ? (
-            <p className="mt-3 text-sm text-red-300">{factsError}</p>
-          ) : null}
-
-          {debugFacts && repositoryKey ? (
-            <pre className="mt-3 max-h-96 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-300">
-              {JSON.stringify(debugFacts, null, 2)}
-            </pre>
-          ) : null}
-        </section>
+      {repository && authState.authenticated && repositoryKey ? (
+        <DebugFactsPanel
+          debugFacts={debugFacts}
+          error={factsError}
+          isLoading={isFactsLoading}
+        />
       ) : null}
     </main>
   );

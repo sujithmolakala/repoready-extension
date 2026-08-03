@@ -43,7 +43,7 @@ describe("EvaluateHealthUseCase", () => {
     const useCase = new EvaluateHealthUseCase();
     const report = useCase.execute(createFacts());
 
-    expect(report.categories).toHaveLength(2);
-    expect(report.maxScore).toBe(45);
+    expect(report.categories).toHaveLength(6);
+    expect(report.maxScore).toBe(100);
   });
 });
