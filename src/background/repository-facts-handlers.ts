@@ -17,6 +17,11 @@ export function createRepositoryFactsHandlers(
   collectRepositoryFactsUseCase: CollectRepositoryFactsUseCase,
   repositoryFactsStore: RepositoryFactsStore,
   broadcastFactsState: (factsState: GetRepositoryFactsResponse["factsState"]) => void,
+  onFactsCollected?: (
+    tabId: number,
+    facts: import("../domain/models/repositoryFacts").RepositoryFacts,
+  ) => void,
+  onFactsCleared?: (tabId: number) => void,
 ) {
   function handleGetRepositoryFacts(
     tabId: number | undefined,
@@ -35,6 +40,7 @@ export function createRepositoryFactsHandlers(
     if (repository === null) {
       repositoryFactsStore.clear(tabId);
       broadcastFactsState(emptyRepositoryFactsState);
+      onFactsCleared?.(tabId);
       return;
     }
 
@@ -54,6 +60,7 @@ export function createRepositoryFactsHandlers(
       }
 
       broadcastFactsState(repositoryFactsStore.get(tabId));
+      onFactsCollected?.(tabId, facts);
     } catch (error) {
       const message =
         error instanceof AuthError

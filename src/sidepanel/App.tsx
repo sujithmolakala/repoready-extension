@@ -1,4 +1,6 @@
 import { useAuthState } from "../shared/hooks/useAuthState";
+import { HealthScoreView } from "./components/HealthScoreView";
+import { useHealthReport } from "./useHealthReport";
 import { useRepoState } from "./useRepoState";
 import { useRepositoryFacts } from "./useRepositoryFacts";
 
@@ -15,6 +17,17 @@ export default function App() {
     error: factsError,
     repositoryKey,
   } = useRepositoryFacts();
+  const {
+    report,
+    isLoading: isHealthLoading,
+    error: healthError,
+    repositoryKey: healthRepositoryKey,
+  } = useHealthReport();
+
+  const showHealthSection =
+    repository &&
+    authState.authenticated &&
+    healthRepositoryKey === `${repository.owner}/${repository.name}`;
 
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 px-6 py-8 text-white">
@@ -70,6 +83,24 @@ export default function App() {
           </p>
         )}
       </section>
+
+      {showHealthSection ? (
+        <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+          <h2 className="text-sm font-medium text-slate-200">Health score</h2>
+
+          {isHealthLoading || (report === null && healthError === null) ? (
+            <p className="mt-3 text-sm text-slate-400">
+              Evaluating repository health…
+            </p>
+          ) : null}
+
+          {healthError ? (
+            <p className="mt-3 text-sm text-red-300">{healthError}</p>
+          ) : null}
+
+          {report ? <div className="mt-4"><HealthScoreView report={report} /></div> : null}
+        </section>
+      ) : null}
 
       {repository && authState.authenticated ? (
         <section className="mt-6 flex min-h-0 flex-1 flex-col rounded-lg border border-slate-800 bg-slate-900/60 p-4">

@@ -1,4 +1,5 @@
 import type { RepositoryFactsState } from "../domain/models/repositoryFacts";
+import type { HealthReportState } from "../domain/models/healthReport";
 
 export const MessageType = {
   REPO_DETECTED: "REPO_DETECTED",
@@ -10,6 +11,8 @@ export const MessageType = {
   DISCONNECT_GITHUB: "DISCONNECT_GITHUB",
   GET_REPOSITORY_FACTS: "GET_REPOSITORY_FACTS",
   REPOSITORY_FACTS_UPDATED: "REPOSITORY_FACTS_UPDATED",
+  GET_HEALTH_REPORT: "GET_HEALTH_REPORT",
+  HEALTH_REPORT_UPDATED: "HEALTH_REPORT_UPDATED",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -66,6 +69,17 @@ export interface RepositoryFactsUpdatedMessage {
   };
 }
 
+export interface GetHealthReportMessage {
+  type: typeof MessageType.GET_HEALTH_REPORT;
+}
+
+export interface HealthReportUpdatedMessage {
+  type: typeof MessageType.HEALTH_REPORT_UPDATED;
+  payload: {
+    healthState: HealthReportState;
+  };
+}
+
 export type ExtensionMessage =
   | RepoDetectedMessage
   | GetRepoStateMessage
@@ -75,7 +89,9 @@ export type ExtensionMessage =
   | ValidateGitHubTokenMessage
   | DisconnectGitHubMessage
   | GetRepositoryFactsMessage
-  | RepositoryFactsUpdatedMessage;
+  | RepositoryFactsUpdatedMessage
+  | GetHealthReportMessage
+  | HealthReportUpdatedMessage;
 
 export interface GetRepoStateResponse {
   repository: import("../domain/repository").GitHubRepository | null;
@@ -97,6 +113,10 @@ export interface DisconnectGitHubResponse {
 
 export interface GetRepositoryFactsResponse {
   factsState: RepositoryFactsState;
+}
+
+export interface GetHealthReportResponse {
+  healthState: HealthReportState;
 }
 
 export function isGetRepoStateResponse(
@@ -194,6 +214,53 @@ export function isRepositoryFactsState(
   );
 }
 
+export function isGetHealthReportResponse(
+  value: unknown,
+): value is GetHealthReportResponse {
+  if (typeof value !== "object" || value === null || !("healthState" in value)) {
+    return false;
+  }
+
+  return isHealthReportState(value.healthState);
+}
+
+export function isHealthReportState(
+  value: unknown,
+): value is HealthReportState {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const state = value as Record<string, unknown>;
+
+  return (
+    (typeof state.repositoryKey === "string" || state.repositoryKey === null) &&
+    typeof state.isLoading === "boolean" &&
+    (typeof state.error === "string" || state.error === null) &&
+    (state.report === null || isHealthReport(state.report))
+  );
+}
+
+export function isHealthReport(
+  value: unknown,
+): value is import("../domain/models/healthReport").HealthReport {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const report = value as Record<string, unknown>;
+
+  return (
+    typeof report.owner === "string" &&
+    typeof report.repo === "string" &&
+    typeof report.totalScore === "number" &&
+    typeof report.maxScore === "number" &&
+    typeof report.analyzedAt === "string" &&
+    Array.isArray(report.categories) &&
+    Array.isArray(report.recommendations)
+  );
+}
+
 export function isRepositoryFacts(value: unknown): value is import("../domain/models/repositoryFacts").RepositoryFacts {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -244,6 +311,8 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     messageType === MessageType.VALIDATE_GITHUB_TOKEN ||
     messageType === MessageType.DISCONNECT_GITHUB ||
     messageType === MessageType.GET_REPOSITORY_FACTS ||
-    messageType === MessageType.REPOSITORY_FACTS_UPDATED
+    messageType === MessageType.REPOSITORY_FACTS_UPDATED ||
+    messageType === MessageType.GET_HEALTH_REPORT ||
+    messageType === MessageType.HEALTH_REPORT_UPDATED
   );
 }

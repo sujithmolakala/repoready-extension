@@ -1,7 +1,9 @@
 import { RepoStateStore } from "../application/repo-state-store";
 import { CollectRepositoryFactsUseCase } from "../application/CollectRepositoryFactsUseCase";
 import { DisconnectGitHubUseCase } from "../application/DisconnectGitHubUseCase";
+import { EvaluateHealthUseCase } from "../application/EvaluateHealthUseCase";
 import { GetAuthStateUseCase } from "../application/GetAuthStateUseCase";
+import { HealthReportStore } from "../application/health-report-store";
 import { RepositoryFactsStore } from "../application/repository-facts-store";
 import { ValidateGitHubTokenUseCase } from "../application/ValidateGitHubTokenUseCase";
 import { AuthErrorCode } from "../domain/errors";
@@ -21,6 +23,10 @@ import {
   createAuthStateBroadcaster,
 } from "./auth-handlers";
 import {
+  createHealthReportBroadcaster,
+  createHealthReportHandlers,
+} from "./health-handlers";
+import {
   createRepositoryFactsBroadcaster,
   createRepositoryFactsHandlers,
 } from "./repository-facts-handlers";
@@ -29,6 +35,7 @@ console.info("[RepoReady] Background service worker started");
 
 const repoStateStore = new RepoStateStore();
 const repositoryFactsStore = new RepositoryFactsStore();
+const healthReportStore = new HealthReportStore();
 const tokenStore = new TokenStore();
 const authProvider = new PATAuthProvider(tokenStore);
 const githubClient = new GitHubClient(authProvider);
@@ -43,8 +50,15 @@ const collectRepositoryFactsUseCase = new CollectRepositoryFactsUseCase(
   factCollector,
   authProvider,
 );
+const evaluateHealthUseCase = new EvaluateHealthUseCase();
 const broadcastAuthState = createAuthStateBroadcaster();
 const broadcastRepositoryFacts = createRepositoryFactsBroadcaster();
+const broadcastHealthReport = createHealthReportBroadcaster();
+const healthReportHandlers = createHealthReportHandlers(
+  evaluateHealthUseCase,
+  healthReportStore,
+  broadcastHealthReport,
+);
 const authHandlers = createAuthHandlers(
   getAuthStateUseCase,
   validateGitHubTokenUseCase,
@@ -55,6 +69,12 @@ const repositoryFactsHandlers = createRepositoryFactsHandlers(
   collectRepositoryFactsUseCase,
   repositoryFactsStore,
   broadcastRepositoryFacts,
+  (tabId, facts) => {
+    healthReportHandlers.evaluateForTab(tabId, facts);
+  },
+  (tabId) => {
+    healthReportHandlers.clearForTab(tabId);
+  },
 );
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -146,6 +166,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === MessageType.GET_HEALTH_REPORT) {
+    void getActiveTab().then((activeTab) => {
+      sendResponse(healthReportHandlers.handleGetHealthReport(activeTab?.id));
+    });
+
+    return true;
+  }
+
   if (message.type === MessageType.GET_AUTH_STATE) {
     void authHandlers.handleGetAuthState().then((response) => {
       sendResponse(response);
@@ -201,6 +229,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       void getActiveTab().then((activeTab) => {
         if (activeTab?.id !== undefined) {
           void repositoryFactsHandlers.collectForTab(activeTab.id, null);
+          healthReportHandlers.clearForTab(activeTab.id);
         }
       });
     });
@@ -214,9 +243,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   notifySidePanel(repoStateStore.get(tabId));
   broadcastRepositoryFacts(repositoryFactsStore.get(tabId));
+  broadcastHealthReport(healthReportStore.get(tabId));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   repoStateStore.delete(tabId);
   repositoryFactsStore.clear(tabId);
+  healthReportStore.clear(tabId);
 });
