@@ -86,21 +86,17 @@ export default function App() {
 
       {showHealthSection ? (
         <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-          <h2 className="text-sm font-medium text-slate-200">
-            Repository Health Score
-          </h2>
-
           {isHealthLoading || (report === null && healthError === null) ? (
-            <p className="mt-3 text-sm text-slate-400">
+            <p className="text-sm text-slate-400">
               Evaluating repository health…
             </p>
           ) : null}
 
           {healthError ? (
-            <p className="mt-3 text-sm text-red-300">{healthError}</p>
+            <p className="text-sm text-red-300">{healthError}</p>
           ) : null}
 
-          {report ? <div className="mt-4"><HealthScoreView report={report} /></div> : null}
+          {report ? <HealthScoreView report={report} /> : null}
         </section>
       ) : null}
 
