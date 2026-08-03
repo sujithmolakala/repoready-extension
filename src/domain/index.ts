@@ -1,2 +1,2 @@
-/** Domain models and business rules. Reserved for future repository health logic. */
-export {};
+export type { GitHubRepository } from "./repository";
+export { parseGitHubRepositoryUrl } from "./github-url-parser";

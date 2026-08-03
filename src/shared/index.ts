@@ -1,2 +1,10 @@
-/** Shared utilities, types, and UI primitives used across extension surfaces. */
-export {};
+export {
+  MessageType,
+  isExtensionMessage,
+  isGetRepoStateResponse,
+  type ExtensionMessage,
+  type GetRepoStateMessage,
+  type GetRepoStateResponse,
+  type RepoDetectedMessage,
+  type RepoStateUpdatedMessage,
+} from "./messages";
