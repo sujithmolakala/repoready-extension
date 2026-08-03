@@ -8,9 +8,22 @@ import {
   getTopLevelFieldNames,
   logGitHubAuthDiagnostic,
 } from "./github-auth-diagnostics";
-import type { GitHubUser } from "./types";
-
-const GITHUB_API_BASE = "https://api.github.com";
+import {
+  decodeBase64Content,
+  githubFetchJson,
+  type FetchFn,
+} from "./github-request";
+import { logTreeCollectionDiagnostic } from "./tree-diagnostics";
+import { parseTree } from "./tree-parser";
+import type {
+  GitHubBranchResponse,
+  GitHubCommitResponse,
+  GitHubContentResponse,
+  GitHubReadmeResponse,
+  GitHubRepositoryResponse,
+  GitHubTreeResponse,
+  GitHubUser,
+} from "./types";
 
 const REQUIRED_HEADERS = {
   authorization: "Bearer <redacted>",
@@ -18,7 +31,7 @@ const REQUIRED_HEADERS = {
   "x-github-api-version": "2022-11-28",
 } as const;
 
-export type FetchFn = typeof fetch;
+export type { FetchFn } from "./github-request";
 
 export class GitHubClient {
   constructor(
@@ -27,14 +40,7 @@ export class GitHubClient {
   ) {}
 
   async getCurrentUser(): Promise<GitHubUser> {
-    const token = await this.authProvider.getToken();
-
-    if (token === null) {
-      throw new AuthError(
-        AuthErrorCode.MISSING_TOKEN,
-        "No GitHub token is stored.",
-      );
-    }
+    const token = await this.getTokenOrThrow();
 
     return this.fetchCurrentUser(token);
   }
@@ -52,43 +58,248 @@ export class GitHubClient {
     return this.fetchCurrentUser(trimmedToken);
   }
 
+  async getRepository(
+    owner: string,
+    name: string,
+  ): Promise<GitHubRepositoryResponse> {
+    const token = await this.getTokenOrThrow();
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+    );
+
+    return body as GitHubRepositoryResponse;
+  }
+
+  async getLanguages(
+    owner: string,
+    name: string,
+  ): Promise<Record<string, number>> {
+    const token = await this.getTokenOrThrow();
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/languages`,
+    );
+
+    return parseLanguages(body);
+  }
+
+  async getDirectoryContents(
+    owner: string,
+    name: string,
+    path: string,
+  ): Promise<GitHubContentResponse[]> {
+    const token = await this.getTokenOrThrow();
+    const encodedPath = path
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encodedPath}`,
+      { allowNotFound: true },
+    );
+
+    if (body === null) {
+      return [];
+    }
+
+    if (Array.isArray(body)) {
+      return body as GitHubContentResponse[];
+    }
+
+    return [body as GitHubContentResponse];
+  }
+
+  async getReadme(
+    owner: string,
+    name: string,
+  ): Promise<{ path: string; content: string } | null> {
+    const token = await this.getTokenOrThrow();
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/readme`,
+      { allowNotFound: true },
+    );
+
+    if (body === null) {
+      return null;
+    }
+
+    return parseReadme(body as GitHubReadmeResponse);
+  }
+
+  async getFileContent(
+    owner: string,
+    name: string,
+    path: string,
+  ): Promise<{ path: string; content: string; size: number | null }> {
+    const token = await this.getTokenOrThrow();
+    const encodedPath = path
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${encodedPath}`,
+    );
+
+    return parseContentFile(body as GitHubContentResponse);
+  }
+
+  async getRecursiveTree(
+    owner: string,
+    name: string,
+    branch: string,
+  ): Promise<{ paths: string[]; truncated: boolean }> {
+    const token = await this.getTokenOrThrow();
+    const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+
+    let branchBody: GitHubBranchResponse;
+
+    try {
+      branchBody = (await githubFetchJson(
+        this.fetchFn,
+        token,
+        `${repoPath}/branches/${encodeURIComponent(branch)}`,
+      )) as GitHubBranchResponse;
+    } catch (error) {
+      logTreeCollectionDiagnostic({
+        stage: "branch",
+        errorCode: readErrorCode(error),
+        message: readErrorMessage(error),
+      });
+      throw error;
+    }
+
+    const commitSha =
+      typeof branchBody.commit?.sha === "string" ? branchBody.commit.sha : null;
+
+    if (commitSha === null) {
+      logTreeCollectionDiagnostic({
+        stage: "branch",
+        httpStatus: 200,
+        message: "Branch response missing commit SHA.",
+      });
+
+      throw new AuthError(
+        AuthErrorCode.MALFORMED_RESPONSE,
+        "GitHub returned an unexpected branch response.",
+      );
+    }
+
+    let commitBody: GitHubCommitResponse;
+
+    try {
+      commitBody = (await githubFetchJson(
+        this.fetchFn,
+        token,
+        `${repoPath}/git/commits/${commitSha}`,
+      )) as GitHubCommitResponse;
+    } catch (error) {
+      logTreeCollectionDiagnostic({
+        stage: "commit",
+        errorCode: readErrorCode(error),
+        message: readErrorMessage(error),
+      });
+      throw error;
+    }
+
+    const treeSha = readTreeSha(commitBody);
+
+    if (treeSha === null) {
+      logTreeCollectionDiagnostic({
+        stage: "commit",
+        httpStatus: 200,
+        message: "Commit response missing tree SHA.",
+      });
+
+      throw new AuthError(
+        AuthErrorCode.MALFORMED_RESPONSE,
+        "GitHub returned an unexpected commit response.",
+      );
+    }
+
+    let treeBody: GitHubTreeResponse;
+
+    try {
+      treeBody = (await githubFetchJson(
+        this.fetchFn,
+        token,
+        `${repoPath}/git/trees/${treeSha}?recursive=1`,
+      )) as GitHubTreeResponse;
+    } catch (error) {
+      logTreeCollectionDiagnostic({
+        stage: "tree",
+        errorCode: readErrorCode(error),
+        message: readErrorMessage(error),
+      });
+      throw error;
+    }
+
+    return parseTree(treeBody);
+  }
+
+  async hasReleases(owner: string, name: string): Promise<boolean> {
+    const token = await this.getTokenOrThrow();
+    const body = await githubFetchJson(
+      this.fetchFn,
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/releases?per_page=1`,
+    );
+
+    return Array.isArray(body) && body.length > 0;
+  }
+
+  private async getTokenOrThrow(): Promise<string> {
+    const token = await this.authProvider.getToken();
+
+    if (token === null) {
+      throw new AuthError(
+        AuthErrorCode.MISSING_TOKEN,
+        "No GitHub token is stored.",
+      );
+    }
+
+    return token;
+  }
+
   private async fetchCurrentUser(token: string): Promise<GitHubUser> {
     logGitHubAuthDiagnostic({
       phase: "request-start",
       requestSent: false,
     });
 
-    let response: Response;
+    let body: unknown;
 
     try {
-      response = await this.fetchFn(`${GITHUB_API_BASE}/user`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      });
-    } catch {
-      logGitHubAuthDiagnostic({
-        phase: "network-error",
-        requestSent: true,
-        mappedErrorCode: AuthErrorCode.NETWORK_ERROR,
-      });
+      body = await githubFetchJson(this.fetchFn, token, "/user");
+    } catch (error) {
+      if (error instanceof AuthError && error.code === AuthErrorCode.NETWORK_ERROR) {
+        logGitHubAuthDiagnostic({
+          phase: "network-error",
+          requestSent: true,
+          mappedErrorCode: AuthErrorCode.NETWORK_ERROR,
+        });
+      }
 
-      throw new AuthError(
-        AuthErrorCode.NETWORK_ERROR,
-        "GitHub could not be reached. Check your connection and try again.",
-      );
+      throw error;
     }
 
     logGitHubAuthDiagnostic({
-      phase: "response-received",
+      phase: "response-parsed",
       requestSent: true,
-      httpStatus: response.status,
-      contentType: response.headers.get("content-type"),
-      loginExists: undefined,
-      loginType: undefined,
+      httpStatus: 200,
+      contentType: "application/json",
+      jsonParseSucceeded: true,
+      topLevelFieldNames: getTopLevelFieldNames(body),
+      loginExists: getLoginType(body) !== "missing",
+      loginType: getLoginType(body),
     });
 
     console.info("[RepoReady Auth Diagnostic] request-headers", {
@@ -97,75 +308,7 @@ export class GitHubClient {
       "x-github-api-version": REQUIRED_HEADERS["x-github-api-version"],
     });
 
-    const statusError = mapHttpStatusError(response);
-
-    if (statusError !== null) {
-      logGitHubAuthDiagnostic({
-        phase: "http-status-error",
-        requestSent: true,
-        httpStatus: response.status,
-        contentType: response.headers.get("content-type"),
-        mappedErrorCode: statusError.code,
-      });
-
-      throw statusError;
-    }
-
-    let body: unknown;
-    let jsonParseSucceeded = false;
-
-    try {
-      body = await response.json();
-      jsonParseSucceeded = true;
-    } catch {
-      logGitHubAuthDiagnostic({
-        phase: "json-parse-error",
-        requestSent: true,
-        httpStatus: response.status,
-        contentType: response.headers.get("content-type"),
-        jsonParseSucceeded: false,
-        mappedErrorCode: AuthErrorCode.MALFORMED_RESPONSE,
-      });
-
-      throw new AuthError(
-        AuthErrorCode.MALFORMED_RESPONSE,
-        "GitHub returned a malformed response.",
-      );
-    }
-
-    const topLevelFieldNames = getTopLevelFieldNames(body);
-    const loginType = getLoginType(body);
-
-    logGitHubAuthDiagnostic({
-      phase: "response-parsed",
-      requestSent: true,
-      httpStatus: response.status,
-      contentType: response.headers.get("content-type"),
-      jsonParseSucceeded,
-      topLevelFieldNames,
-      loginExists: loginType !== "missing",
-      loginType,
-    });
-
-    try {
-      return parseGitHubUser(body);
-    } catch (error) {
-      if (error instanceof AuthError) {
-        logGitHubAuthDiagnostic({
-          phase: "response-validation-error",
-          requestSent: true,
-          httpStatus: response.status,
-          contentType: response.headers.get("content-type"),
-          jsonParseSucceeded,
-          topLevelFieldNames,
-          loginExists: loginType !== "missing",
-          loginType,
-          mappedErrorCode: error.code,
-        });
-      }
-
-      throw error;
-    }
+    return parseGitHubUser(body);
   }
 }
 
@@ -195,90 +338,89 @@ export function parseGitHubUser(body: unknown): GitHubUser {
   };
 }
 
-function mapHttpStatusError(response: Response): AuthError | null {
-  if (response.status === 401) {
-    return new AuthError(
-      AuthErrorCode.INVALID_TOKEN,
-      "This token is invalid or has expired.",
+function parseLanguages(body: unknown): Record<string, number> {
+  if (typeof body !== "object" || body === null) {
+    return {};
+  }
+
+  const languages: Record<string, number> = {};
+
+  for (const [language, bytes] of Object.entries(body)) {
+    if (typeof bytes === "number") {
+      languages[language] = bytes;
+    }
+  }
+
+  return languages;
+}
+
+function parseReadme(
+  body: GitHubReadmeResponse,
+): { path: string; content: string } | null {
+  if (typeof body.path !== "string" || typeof body.content !== "string") {
+    return null;
+  }
+
+  if (body.encoding !== "base64") {
+    return {
+      path: body.path,
+      content: body.content,
+    };
+  }
+
+  return {
+    path: body.path,
+    content: decodeBase64Content(body.content),
+  };
+}
+
+function parseContentFile(
+  body: GitHubContentResponse,
+): { path: string; content: string; size: number | null } {
+  const path = typeof body.path === "string" ? body.path : null;
+  const content = typeof body.content === "string" ? body.content : null;
+
+  if (path === null || content === null) {
+    throw new AuthError(
+      AuthErrorCode.MALFORMED_RESPONSE,
+      "GitHub returned an unreadable file response.",
     );
   }
 
-  if (isRateLimited(response)) {
-    return new AuthError(
-      AuthErrorCode.RATE_LIMITED,
-      formatRateLimitMessage(response),
-      getRetryAfterSeconds(response),
-    );
+  const decodedContent =
+    body.encoding === "base64" ? decodeBase64Content(content) : content;
+
+  return {
+    path,
+    content: decodedContent,
+    size: typeof body.size === "number" ? body.size : null,
+  };
+}
+
+function readTreeSha(commitBody: GitHubCommitResponse): string | null {
+  if (typeof commitBody.tree?.sha === "string") {
+    return commitBody.tree.sha;
   }
 
-  if (response.status === 403) {
-    return new AuthError(
-      AuthErrorCode.INSUFFICIENT_PERMISSIONS,
-      "This token does not have sufficient permissions or GitHub blocked the request.",
-    );
-  }
-
-  if (response.status >= 500) {
-    return new AuthError(
-      AuthErrorCode.API_UNAVAILABLE,
-      "GitHub is temporarily unavailable. Try again later.",
-    );
-  }
-
-  if (response.status !== 200) {
-    return new AuthError(
-      AuthErrorCode.API_UNAVAILABLE,
-      "GitHub returned an unexpected response. Try again later.",
-    );
+  if (typeof commitBody.commit?.tree?.sha === "string") {
+    return commitBody.commit.tree.sha;
   }
 
   return null;
 }
 
-function isRateLimited(response: Response): boolean {
-  if (response.status === 429) {
-    return true;
-  }
-
-  const remaining = response.headers.get("X-RateLimit-Remaining");
-
-  return response.status === 403 && remaining === "0";
-}
-
-function getRetryAfterSeconds(response: Response): number | undefined {
-  const retryAfterHeader = response.headers.get("Retry-After");
-
-  if (retryAfterHeader !== null) {
-    const retryAfterSeconds = Number.parseInt(retryAfterHeader, 10);
-
-    if (!Number.isNaN(retryAfterSeconds)) {
-      return retryAfterSeconds;
-    }
-  }
-
-  const resetHeader = response.headers.get("X-RateLimit-Reset");
-
-  if (resetHeader !== null) {
-    const resetEpochSeconds = Number.parseInt(resetHeader, 10);
-
-    if (!Number.isNaN(resetEpochSeconds)) {
-      const secondsUntilReset = resetEpochSeconds - Math.floor(Date.now() / 1000);
-
-      return secondsUntilReset > 0 ? secondsUntilReset : undefined;
-    }
+function readErrorCode(error: unknown): string | undefined {
+  if (error instanceof AuthError) {
+    return error.code;
   }
 
   return undefined;
 }
 
-function formatRateLimitMessage(response: Response): string {
-  const retryAfterSeconds = getRetryAfterSeconds(response);
-
-  if (retryAfterSeconds === undefined) {
-    return "GitHub rate limit reached. Try again later.";
+function readErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  const retryTime = new Date(Date.now() + retryAfterSeconds * 1000).toLocaleTimeString();
-
-  return `GitHub rate limit reached. Try again after ${retryTime}.`;
+  return undefined;
 }

@@ -175,3 +175,96 @@ describe("parseGitHubUser", () => {
     });
   });
 });
+
+describe("GitHubClient.getRecursiveTree", () => {
+  function readRequestUrl(input: RequestInfo | URL): string {
+    if (typeof input === "string") {
+      return input;
+    }
+
+    if (input instanceof URL) {
+      return input.toString();
+    }
+
+    return input.url;
+  }
+
+  it("resolves branch commit SHA to tree SHA before recursive tree fetch", async () => {
+    const requestedUrls: string[] = [];
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = readRequestUrl(input);
+      requestedUrls.push(url);
+
+      if (url.endsWith("/branches/main")) {
+        return Response.json({
+          commit: { sha: "commit-sha-123" },
+        });
+      }
+
+      if (url.endsWith("/git/commits/commit-sha-123")) {
+        return Response.json({
+          tree: { sha: "tree-sha-456" },
+        });
+      }
+
+      if (url.endsWith("/git/trees/tree-sha-456?recursive=1")) {
+        return Response.json({
+          tree: [
+            { path: "README.md", type: "blob" },
+            { path: "src/index.ts", type: "blob" },
+          ],
+          truncated: false,
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const client = createClient(fetchFn);
+    const result = await client.getRecursiveTree("RepoReady", "repoready", "main");
+
+    expect(requestedUrls).toEqual([
+      "https://api.github.com/repos/RepoReady/repoready/branches/main",
+      "https://api.github.com/repos/RepoReady/repoready/git/commits/commit-sha-123",
+      "https://api.github.com/repos/RepoReady/repoready/git/trees/tree-sha-456?recursive=1",
+    ]);
+    expect(result).toEqual({
+      paths: ["README.md", "src/index.ts"],
+      truncated: false,
+    });
+  });
+
+  it("accepts nested commit tree SHA as fallback", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = readRequestUrl(input);
+
+      if (url.endsWith("/branches/main")) {
+        return Response.json({
+          commit: { sha: "commit-sha-123" },
+        });
+      }
+
+      if (url.endsWith("/git/commits/commit-sha-123")) {
+        return Response.json({
+          commit: {
+            tree: { sha: "tree-sha-nested" },
+          },
+        });
+      }
+
+      if (url.endsWith("/git/trees/tree-sha-nested?recursive=1")) {
+        return Response.json({
+          tree: [{ path: "package.json", type: "blob" }],
+          truncated: false,
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const client = createClient(fetchFn);
+    const result = await client.getRecursiveTree("RepoReady", "repoready", "main");
+
+    expect(result.paths).toEqual(["package.json"]);
+  });
+});

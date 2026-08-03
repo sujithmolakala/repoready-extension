@@ -5,6 +5,8 @@ export {
   isGetAuthStateResponse,
   isValidateGitHubTokenResponse,
   isDisconnectGitHubResponse,
+  isGetRepositoryFactsResponse,
+  isRepositoryFactsState,
   isSanitizedAuthState,
   type ExtensionMessage,
   type GetAuthStateMessage,
@@ -14,5 +16,8 @@ export {
   type DisconnectGitHubMessage,
   type DisconnectGitHubResponse,
   type AuthStateUpdatedMessage,
+  type GetRepositoryFactsMessage,
+  type GetRepositoryFactsResponse,
+  type RepositoryFactsUpdatedMessage,
 } from "./messages";
 export { useAuthState } from "./hooks/useAuthState";

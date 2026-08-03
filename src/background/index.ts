@@ -1,8 +1,12 @@
 import { RepoStateStore } from "../application/repo-state-store";
+import { CollectRepositoryFactsUseCase } from "../application/CollectRepositoryFactsUseCase";
 import { DisconnectGitHubUseCase } from "../application/DisconnectGitHubUseCase";
 import { GetAuthStateUseCase } from "../application/GetAuthStateUseCase";
+import { RepositoryFactsStore } from "../application/repository-facts-store";
 import { ValidateGitHubTokenUseCase } from "../application/ValidateGitHubTokenUseCase";
+import { AuthErrorCode } from "../domain/errors";
 import { PATAuthProvider } from "../infrastructure/auth/PATAuthProvider";
+import { FactCollector } from "../infrastructure/github/FactCollector";
 import { GitHubClient } from "../infrastructure/github/GitHubClient";
 import { TokenStore } from "../infrastructure/storage/TokenStore";
 import {
@@ -11,31 +15,46 @@ import {
   type GetRepoStateResponse,
   type RepoStateUpdatedMessage,
 } from "../shared/messages";
-import { AuthErrorCode } from "../domain/errors";
 
 import {
   createAuthHandlers,
   createAuthStateBroadcaster,
 } from "./auth-handlers";
+import {
+  createRepositoryFactsBroadcaster,
+  createRepositoryFactsHandlers,
+} from "./repository-facts-handlers";
 
 console.info("[RepoReady] Background service worker started");
 
 const repoStateStore = new RepoStateStore();
+const repositoryFactsStore = new RepositoryFactsStore();
 const tokenStore = new TokenStore();
 const authProvider = new PATAuthProvider(tokenStore);
 const githubClient = new GitHubClient(authProvider);
+const factCollector = new FactCollector(githubClient);
 const getAuthStateUseCase = new GetAuthStateUseCase(tokenStore);
 const validateGitHubTokenUseCase = new ValidateGitHubTokenUseCase(
   githubClient,
   tokenStore,
 );
 const disconnectGitHubUseCase = new DisconnectGitHubUseCase(tokenStore);
+const collectRepositoryFactsUseCase = new CollectRepositoryFactsUseCase(
+  factCollector,
+  authProvider,
+);
 const broadcastAuthState = createAuthStateBroadcaster();
+const broadcastRepositoryFacts = createRepositoryFactsBroadcaster();
 const authHandlers = createAuthHandlers(
   getAuthStateUseCase,
   validateGitHubTokenUseCase,
   disconnectGitHubUseCase,
   broadcastAuthState,
+);
+const repositoryFactsHandlers = createRepositoryFactsHandlers(
+  collectRepositoryFactsUseCase,
+  repositoryFactsStore,
+  broadcastRepositoryFacts,
 );
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -53,24 +72,39 @@ function notifySidePanel(repository: GetRepoStateResponse["repository"]): void {
   });
 }
 
-async function getActiveTabRepository(): Promise<GetRepoStateResponse["repository"]> {
+async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const tabs = await chrome.tabs.query({
     active: true,
     currentWindow: true,
   });
 
-  const tabId = tabs.at(0)?.id;
+  return tabs.at(0);
+}
 
-  if (tabId === undefined) {
+async function getActiveTabRepository(): Promise<GetRepoStateResponse["repository"]> {
+  const activeTab = await getActiveTab();
+
+  if (activeTab?.id === undefined) {
     return null;
   }
 
-  return repoStateStore.get(tabId);
+  return repoStateStore.get(activeTab.id);
 }
 
 async function notifySidePanelForActiveTab(): Promise<void> {
   const repository = await getActiveTabRepository();
   notifySidePanel(repository);
+}
+
+async function collectFactsForActiveTab(): Promise<void> {
+  const activeTab = await getActiveTab();
+
+  if (activeTab?.id === undefined) {
+    return;
+  }
+
+  const repository = repoStateStore.get(activeTab.id);
+  await repositoryFactsHandlers.collectForTab(activeTab.id, repository);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -84,6 +118,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (tabId !== undefined) {
       repoStateStore.set(tabId, message.payload.repository);
       void notifySidePanelForActiveTab();
+      void repositoryFactsHandlers.collectForTab(
+        tabId,
+        message.payload.repository,
+      );
     }
 
     return false;
@@ -93,6 +131,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     void getActiveTabRepository().then((repository) => {
       const response: GetRepoStateResponse = { repository };
       sendResponse(response);
+    });
+
+    return true;
+  }
+
+  if (message.type === MessageType.GET_REPOSITORY_FACTS) {
+    void getActiveTab().then((activeTab) => {
+      sendResponse(
+        repositoryFactsHandlers.handleGetRepositoryFacts(activeTab?.id),
+      );
     });
 
     return true;
@@ -124,6 +172,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           responseIncludesToken: "token" in response,
         });
         sendResponse(response);
+
+        if (response.success) {
+          void collectFactsForActiveTab();
+        }
       })
       .catch((error: unknown) => {
         console.info("[RepoReady Auth Diagnostic]", {
@@ -146,6 +198,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === MessageType.DISCONNECT_GITHUB) {
     void authHandlers.handleDisconnectGitHub().then((response) => {
       sendResponse(response);
+      void getActiveTab().then((activeTab) => {
+        if (activeTab?.id !== undefined) {
+          void repositoryFactsHandlers.collectForTab(activeTab.id, null);
+        }
+      });
     });
 
     return true;
@@ -156,8 +213,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   notifySidePanel(repoStateStore.get(tabId));
+  broadcastRepositoryFacts(repositoryFactsStore.get(tabId));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   repoStateStore.delete(tabId);
+  repositoryFactsStore.clear(tabId);
 });

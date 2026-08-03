@@ -1,6 +1,4 @@
-import type { SanitizedAuthState } from "../domain/auth";
-import type { AuthErrorPayload } from "../domain/errors";
-import type { GitHubRepository } from "../domain/repository";
+import type { RepositoryFactsState } from "../domain/models/repositoryFacts";
 
 export const MessageType = {
   REPO_DETECTED: "REPO_DETECTED",
@@ -10,6 +8,8 @@ export const MessageType = {
   AUTH_STATE_UPDATED: "AUTH_STATE_UPDATED",
   VALIDATE_GITHUB_TOKEN: "VALIDATE_GITHUB_TOKEN",
   DISCONNECT_GITHUB: "DISCONNECT_GITHUB",
+  GET_REPOSITORY_FACTS: "GET_REPOSITORY_FACTS",
+  REPOSITORY_FACTS_UPDATED: "REPOSITORY_FACTS_UPDATED",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -18,7 +18,7 @@ export interface RepoDetectedMessage {
   type: typeof MessageType.REPO_DETECTED;
   payload: {
     url: string;
-    repository: GitHubRepository | null;
+    repository: import("../domain/repository").GitHubRepository | null;
   };
 }
 
@@ -29,7 +29,7 @@ export interface GetRepoStateMessage {
 export interface RepoStateUpdatedMessage {
   type: typeof MessageType.REPO_STATE_UPDATED;
   payload: {
-    repository: GitHubRepository | null;
+    repository: import("../domain/repository").GitHubRepository | null;
   };
 }
 
@@ -40,7 +40,7 @@ export interface GetAuthStateMessage {
 export interface AuthStateUpdatedMessage {
   type: typeof MessageType.AUTH_STATE_UPDATED;
   payload: {
-    authState: SanitizedAuthState;
+    authState: import("../domain/auth").SanitizedAuthState;
   };
 }
 
@@ -55,6 +55,17 @@ export interface DisconnectGitHubMessage {
   type: typeof MessageType.DISCONNECT_GITHUB;
 }
 
+export interface GetRepositoryFactsMessage {
+  type: typeof MessageType.GET_REPOSITORY_FACTS;
+}
+
+export interface RepositoryFactsUpdatedMessage {
+  type: typeof MessageType.REPOSITORY_FACTS_UPDATED;
+  payload: {
+    factsState: RepositoryFactsState;
+  };
+}
+
 export type ExtensionMessage =
   | RepoDetectedMessage
   | GetRepoStateMessage
@@ -62,24 +73,30 @@ export type ExtensionMessage =
   | GetAuthStateMessage
   | AuthStateUpdatedMessage
   | ValidateGitHubTokenMessage
-  | DisconnectGitHubMessage;
+  | DisconnectGitHubMessage
+  | GetRepositoryFactsMessage
+  | RepositoryFactsUpdatedMessage;
 
 export interface GetRepoStateResponse {
-  repository: GitHubRepository | null;
+  repository: import("../domain/repository").GitHubRepository | null;
 }
 
 export interface GetAuthStateResponse {
-  authState: SanitizedAuthState;
+  authState: import("../domain/auth").SanitizedAuthState;
 }
 
 export interface ValidateGitHubTokenResponse {
   success: boolean;
-  authState?: SanitizedAuthState;
-  error?: AuthErrorPayload;
+  authState?: import("../domain/auth").SanitizedAuthState;
+  error?: import("../domain/errors").AuthErrorPayload;
 }
 
 export interface DisconnectGitHubResponse {
   success: boolean;
+}
+
+export interface GetRepositoryFactsResponse {
+  factsState: RepositoryFactsState;
 }
 
 export function isGetRepoStateResponse(
@@ -150,7 +167,49 @@ export function isDisconnectGitHubResponse(
   );
 }
 
-export function isSanitizedAuthState(value: unknown): value is SanitizedAuthState {
+export function isGetRepositoryFactsResponse(
+  value: unknown,
+): value is GetRepositoryFactsResponse {
+  if (typeof value !== "object" || value === null || !("factsState" in value)) {
+    return false;
+  }
+
+  return isRepositoryFactsState(value.factsState);
+}
+
+export function isRepositoryFactsState(
+  value: unknown,
+): value is RepositoryFactsState {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const state = value as Record<string, unknown>;
+
+  return (
+    (typeof state.repositoryKey === "string" || state.repositoryKey === null) &&
+    typeof state.isLoading === "boolean" &&
+    (typeof state.error === "string" || state.error === null) &&
+    (state.facts === null || isRepositoryFacts(state.facts))
+  );
+}
+
+export function isRepositoryFacts(value: unknown): value is import("../domain/models/repositoryFacts").RepositoryFacts {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const facts = value as Record<string, unknown>;
+
+  return (
+    typeof facts.owner === "string" &&
+    typeof facts.name === "string" &&
+    typeof facts.defaultBranch === "string" &&
+    typeof facts.fetchedAt === "string"
+  );
+}
+
+export function isSanitizedAuthState(value: unknown): value is import("../domain/auth").SanitizedAuthState {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -183,6 +242,8 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     messageType === MessageType.GET_AUTH_STATE ||
     messageType === MessageType.AUTH_STATE_UPDATED ||
     messageType === MessageType.VALIDATE_GITHUB_TOKEN ||
-    messageType === MessageType.DISCONNECT_GITHUB
+    messageType === MessageType.DISCONNECT_GITHUB ||
+    messageType === MessageType.GET_REPOSITORY_FACTS ||
+    messageType === MessageType.REPOSITORY_FACTS_UPDATED
   );
 }
