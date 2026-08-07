@@ -7,14 +7,17 @@ import type { DraftDocument } from "../../domain/models/draftDocument";
 import type { DocumentType } from "../../domain/models/documentType";
 import type { HealthReport } from "../../domain/models/healthReport";
 import type { RepositoryFacts } from "../../domain/models/repositoryFacts";
+import { DraftStore } from "../../infrastructure/storage/DraftStore";
 import {
   createInitialDocumentDraftState,
   getSelectedDraft,
+  resetDraftContent,
   selectDraft,
   shouldShowPreviewDraftButton,
   storeGeneratedDraft,
+  updateDraftContent,
 } from "../documents/documentDraftState";
-import { DraftPreviewView } from "./DraftPreviewView";
+import { DraftPreviewView, type DraftViewMode } from "./DraftPreviewView";
 
 const generateDocumentUseCase = new GenerateDocumentUseCase();
 
@@ -28,11 +31,57 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     () => getDocumentOpportunities(facts, report),
     [facts, report],
   );
+  const draftStore = useMemo(() => new DraftStore(), []);
   const [draftState, setDraftState] = useState(createInitialDocumentDraftState);
+  const [viewMode, setViewMode] = useState<DraftViewMode>("preview");
   const [previewFocusKey, setPreviewFocusKey] = useState(0);
+  const [draftsLoaded, setDraftsLoaded] = useState(false);
   const previewRef = useRef<HTMLElement | null>(null);
 
   const selectedDraft = getSelectedDraft(draftState);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void draftStore
+      .loadDraftsForRepository(facts.owner, facts.name)
+      .then((loadedDrafts) => {
+        if (cancelled) {
+          return;
+        }
+
+        setDraftState((currentState) => ({
+          ...currentState,
+          drafts: {
+            ...loadedDrafts,
+            ...currentState.drafts,
+          },
+        }));
+        setDraftsLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftStore, facts.owner, facts.name]);
+
+  useEffect(() => {
+    if (!draftsLoaded) {
+      return;
+    }
+
+    const drafts: DraftDocument[] = [];
+
+    for (const documentType of Object.keys(draftState.drafts) as DocumentType[]) {
+      const draft = draftState.drafts[documentType];
+
+      if (draft !== undefined) {
+        drafts.push(draft);
+      }
+    }
+
+    void Promise.all(drafts.map((draft) => draftStore.saveDraft(draft)));
+  }, [draftState.drafts, draftStore, draftsLoaded]);
 
   useEffect(() => {
     if (selectedDraft === null || previewRef.current === null) {
@@ -54,12 +103,49 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     });
 
     setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
+    setViewMode("preview");
     setPreviewFocusKey((currentKey) => currentKey + 1);
   }
 
   function handlePreviewDraft(documentType: DocumentType): void {
     setDraftState((currentState) => selectDraft(currentState, documentType));
     setPreviewFocusKey((currentKey) => currentKey + 1);
+  }
+
+  function handleContentChange(content: string): void {
+    if (selectedDraft === null) {
+      return;
+    }
+
+    setDraftState((currentState) =>
+      updateDraftContent(
+        currentState,
+        selectedDraft.documentType,
+        content,
+        new Date().toISOString(),
+      ),
+    );
+  }
+
+  function handleResetDraft(): void {
+    if (selectedDraft === null) {
+      return;
+    }
+
+    if (
+      selectedDraft.isDirty &&
+      !window.confirm("Discard local edits and restore the generated draft?")
+    ) {
+      return;
+    }
+
+    setDraftState((currentState) =>
+      resetDraftContent(
+        currentState,
+        selectedDraft.documentType,
+        new Date().toISOString(),
+      ),
+    );
   }
 
   if (opportunities.length === 0 && Object.keys(draftState.drafts).length === 0) {
@@ -84,7 +170,14 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
       </div>
 
       {selectedDraft ? (
-        <DraftPreviewView draft={selectedDraft} previewRef={previewRef} />
+        <DraftPreviewView
+          draft={selectedDraft}
+          onContentChange={handleContentChange}
+          onReset={handleResetDraft}
+          onViewModeChange={setViewMode}
+          previewRef={previewRef}
+          viewMode={viewMode}
+        />
       ) : null}
 
       {opportunities.length > 0 ? (
@@ -172,7 +265,7 @@ export function DocumentOpportunityCard({
 
       {draft ? (
         <p className="mt-2 text-xs text-slate-500" data-testid="draft-generated-indicator">
-          Draft ready for preview
+          {draft.isDirty ? "Edited draft ready for preview" : "Draft ready for preview"}
         </p>
       ) : null}
     </li>

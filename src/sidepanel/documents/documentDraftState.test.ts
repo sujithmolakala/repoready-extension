@@ -12,6 +12,7 @@ import {
   selectDraft,
   shouldShowPreviewDraftButton,
   storeGeneratedDraft,
+  updateDraftContent,
 } from "./documentDraftState";
 
 function createFacts(
@@ -164,6 +165,13 @@ describe("GenerateDocumentUseCase preview integration", () => {
 });
 
 describe("Draft preview UI", () => {
+  const previewProps = {
+    viewMode: "preview" as const,
+    onViewModeChange: () => undefined,
+    onContentChange: () => undefined,
+    onReset: () => undefined,
+  };
+
   it("renders generated Markdown content in the preview area", () => {
     const draft = new GenerateDocumentUseCase().execute({
       owner: "owner",
@@ -173,11 +181,72 @@ describe("Draft preview UI", () => {
       generatedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    const markup = renderToStaticMarkup(createElement(DraftPreviewView, { draft }));
+    const markup = renderToStaticMarkup(
+      createElement(DraftPreviewView, { draft, ...previewProps }),
+    );
 
     expect(markup).toContain('data-testid="draft-preview"');
-    expect(markup).toContain("# Contributing to repo");
-    expect(markup).toContain('data-testid="draft-preview-content"');
+    expect(markup).toContain("Contributing to repo");
+    expect(markup).toContain('data-testid="draft-markdown-preview"');
+  });
+
+  it("renders edited content in preview mode", () => {
+    let state = storeGeneratedDraft(
+      createInitialDocumentDraftState(),
+      new GenerateDocumentUseCase().execute({
+        owner: "owner",
+        repo: "repo",
+        documentType: "SECURITY",
+        facts: createFacts(),
+        generatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    state = updateDraftContent(
+      state,
+      "SECURITY",
+      "# Security Policy\n\nEdited section",
+      "2026-01-02T00:00:00.000Z",
+    );
+    const draft = getSelectedDraft(state);
+    expect(draft).toBeDefined();
+    if (draft === null) {
+      return;
+    }
+
+    const markup = renderToStaticMarkup(
+      createElement(DraftPreviewView, { draft, ...previewProps }),
+    );
+
+    expect(markup).toContain("Edited section");
+  });
+
+  it("does not execute raw HTML from generated Markdown in preview", () => {
+    const generated = new GenerateDocumentUseCase().execute({
+      owner: "owner",
+      repo: "repo",
+      documentType: "SECURITY",
+      facts: createFacts(),
+      generatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    let state = storeGeneratedDraft(createInitialDocumentDraftState(), generated);
+    state = updateDraftContent(
+      state,
+      "SECURITY",
+      '# Security\n\n<script>alert("x")</script>',
+      "2026-01-02T00:00:00.000Z",
+    );
+    const draft = getSelectedDraft(state);
+    expect(draft).toBeDefined();
+    if (draft === null) {
+      return;
+    }
+
+    const markup = renderToStaticMarkup(
+      createElement(DraftPreviewView, { draft, ...previewProps }),
+    );
+
+    expect(markup).not.toMatch(/<script[\s>]/i);
+    expect(markup).toContain("&lt;script&gt;");
   });
 
   it("hides Preview draft before a draft exists", () => {

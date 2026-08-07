@@ -11,6 +11,8 @@ export interface DraftDocument {
   documentType: DocumentType;
   destinationPath: string;
   content: string;
+  originalContent: string;
+  isDirty: boolean;
   warnings: string[];
   status: DraftDocumentStatus;
   source: DraftDocumentSource;

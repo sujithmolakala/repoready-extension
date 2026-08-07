@@ -1,4 +1,5 @@
 import { renderDocumentTemplate } from "../domain/documents/documentTemplates";
+import { createGeneratedDraft } from "../domain/documents/draftDocumentUtils";
 import { getDocumentDestinationPath } from "../domain/models/documentType";
 import type { DocumentType } from "../domain/models/documentType";
 import type { DraftDocument } from "../domain/models/draftDocument";
@@ -17,7 +18,7 @@ export class GenerateDocumentUseCase {
     const generatedAt = input.generatedAt ?? new Date().toISOString();
     const renderResult = renderDocumentTemplate(input.documentType, input.facts);
 
-    return {
+    return createGeneratedDraft({
       id: `${input.owner}/${input.repo}/${input.documentType}`,
       owner: input.owner,
       repo: input.repo,
@@ -29,6 +30,6 @@ export class GenerateDocumentUseCase {
       source: "static-template",
       createdAt: generatedAt,
       updatedAt: generatedAt,
-    };
+    });
   }
 }

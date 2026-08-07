@@ -1,5 +1,9 @@
 import type { DraftDocument } from "../../domain/models/draftDocument";
 import type { DocumentType } from "../../domain/models/documentType";
+import {
+  withResetDraftContent,
+  withUpdatedDraftContent,
+} from "../../domain/documents/draftDocumentUtils";
 
 export interface DocumentDraftState {
   drafts: Partial<Record<DocumentType, DraftDocument>>;
@@ -54,5 +58,46 @@ export function selectDraft(
   return {
     ...state,
     selectedDocumentType: documentType,
+  };
+}
+
+export function updateDraftContent(
+  state: DocumentDraftState,
+  documentType: DocumentType,
+  content: string,
+  updatedAt: string,
+): DocumentDraftState {
+  const existingDraft = state.drafts[documentType];
+
+  if (existingDraft === undefined) {
+    return state;
+  }
+
+  return {
+    ...state,
+    drafts: {
+      ...state.drafts,
+      [documentType]: withUpdatedDraftContent(existingDraft, content, updatedAt),
+    },
+  };
+}
+
+export function resetDraftContent(
+  state: DocumentDraftState,
+  documentType: DocumentType,
+  updatedAt: string,
+): DocumentDraftState {
+  const existingDraft = state.drafts[documentType];
+
+  if (existingDraft === undefined) {
+    return state;
+  }
+
+  return {
+    ...state,
+    drafts: {
+      ...state.drafts,
+      [documentType]: withResetDraftContent(existingDraft, updatedAt),
+    },
   };
 }
