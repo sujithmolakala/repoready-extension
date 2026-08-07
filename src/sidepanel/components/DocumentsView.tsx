@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GenerateDocumentUseCase } from "../../application/GenerateDocumentUseCase";
 import type { DocumentOpportunity } from "../../domain/documents/documentOpportunities";
@@ -7,6 +7,13 @@ import type { DraftDocument } from "../../domain/models/draftDocument";
 import type { DocumentType } from "../../domain/models/documentType";
 import type { HealthReport } from "../../domain/models/healthReport";
 import type { RepositoryFacts } from "../../domain/models/repositoryFacts";
+import {
+  createInitialDocumentDraftState,
+  getSelectedDraft,
+  selectDraft,
+  shouldShowPreviewDraftButton,
+  storeGeneratedDraft,
+} from "../documents/documentDraftState";
 import { DraftPreviewView } from "./DraftPreviewView";
 
 const generateDocumentUseCase = new GenerateDocumentUseCase();
@@ -21,12 +28,22 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     () => getDocumentOpportunities(facts, report),
     [facts, report],
   );
-  const [drafts, setDrafts] = useState<Partial<Record<DocumentType, DraftDocument>>>({});
-  const [selectedDocumentType, setSelectedDocumentType] =
-    useState<DocumentType | null>(null);
+  const [draftState, setDraftState] = useState(createInitialDocumentDraftState);
+  const [previewFocusKey, setPreviewFocusKey] = useState(0);
+  const previewRef = useRef<HTMLElement | null>(null);
 
-  const selectedDraft =
-    selectedDocumentType === null ? null : drafts[selectedDocumentType] ?? null;
+  const selectedDraft = getSelectedDraft(draftState);
+
+  useEffect(() => {
+    if (selectedDraft === null || previewRef.current === null) {
+      return;
+    }
+
+    previewRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [previewFocusKey, selectedDraft]);
 
   function handleGenerateDraft(documentType: DocumentType): void {
     const draft = generateDocumentUseCase.execute({
@@ -36,14 +53,16 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
       facts,
     });
 
-    setDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [documentType]: draft,
-    }));
-    setSelectedDocumentType(documentType);
+    setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
+    setPreviewFocusKey((currentKey) => currentKey + 1);
   }
 
-  if (opportunities.length === 0 && Object.keys(drafts).length === 0) {
+  function handlePreviewDraft(documentType: DocumentType): void {
+    setDraftState((currentState) => selectDraft(currentState, documentType));
+    setPreviewFocusKey((currentKey) => currentKey + 1);
+  }
+
+  if (opportunities.length === 0 && Object.keys(draftState.drafts).length === 0) {
     return (
       <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
         <h2 className="text-sm font-medium text-slate-200">Documents</h2>
@@ -64,42 +83,52 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
         </p>
       </div>
 
+      {selectedDraft ? (
+        <DraftPreviewView draft={selectedDraft} previewRef={previewRef} />
+      ) : null}
+
       {opportunities.length > 0 ? (
         <ul className="space-y-3">
           {opportunities.map((opportunity) => (
             <DocumentOpportunityCard
-              draft={drafts[opportunity.documentType] ?? null}
-              isSelected={selectedDocumentType === opportunity.documentType}
+              draft={draftState.drafts[opportunity.documentType] ?? null}
+              isSelected={
+                draftState.selectedDocumentType === opportunity.documentType
+              }
               key={opportunity.documentType}
               onGenerateDraft={() => {
                 handleGenerateDraft(opportunity.documentType);
               }}
-              onSelectDraft={() => {
-                setSelectedDocumentType(opportunity.documentType);
+              onPreviewDraft={() => {
+                handlePreviewDraft(opportunity.documentType);
               }}
               opportunity={opportunity}
+              showPreviewButton={shouldShowPreviewDraftButton(
+                draftState.drafts,
+                opportunity.documentType,
+              )}
             />
           ))}
         </ul>
       ) : null}
-
-      {selectedDraft ? <DraftPreviewView draft={selectedDraft} /> : null}
     </section>
   );
 }
 
-function DocumentOpportunityCard({
+export function DocumentOpportunityCard({
   opportunity,
   draft,
   isSelected,
+  showPreviewButton,
   onGenerateDraft,
-  onSelectDraft,
+  onPreviewDraft,
 }: {
   opportunity: DocumentOpportunity;
   draft: DraftDocument | null;
   isSelected: boolean;
+  showPreviewButton: boolean;
   onGenerateDraft: () => void;
-  onSelectDraft: () => void;
+  onPreviewDraft: () => void;
 }) {
   return (
     <li className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
@@ -126,20 +155,26 @@ function DocumentOpportunityCard({
           Generate draft
         </button>
 
-        {draft ? (
+        {showPreviewButton ? (
           <button
             className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
               isSelected
                 ? "border-emerald-500 text-emerald-300"
                 : "border-slate-700 text-slate-300 hover:border-slate-500"
             }`}
-            onClick={onSelectDraft}
+            onClick={onPreviewDraft}
             type="button"
           >
             Preview draft
           </button>
         ) : null}
       </div>
+
+      {draft ? (
+        <p className="mt-2 text-xs text-slate-500" data-testid="draft-generated-indicator">
+          Draft ready for preview
+        </p>
+      ) : null}
     </li>
   );
 }
