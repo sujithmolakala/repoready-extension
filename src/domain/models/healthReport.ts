@@ -1,4 +1,5 @@
-import type { RepositoryFacts } from "../models/repositoryFacts";
+import type { RecommendationDocumentType } from "./documentType";
+import type { RepositoryFacts } from "./repositoryFacts";
 
 export type CheckStatus = "passed" | "failed" | "undetermined";
 
@@ -20,7 +21,7 @@ export interface Recommendation {
   title: string;
   description: string;
   actionType: RecommendationActionType;
-  relatedDocumentType?: string;
+  relatedDocumentType?: RecommendationDocumentType;
   potentialPoints: number;
 }
 

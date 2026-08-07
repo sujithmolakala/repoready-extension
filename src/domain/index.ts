@@ -9,6 +9,48 @@ export {
   repositoryKey,
 } from "./models/repositoryFacts";
 export type {
+  DocumentType,
+  RecommendationDocumentType,
+} from "./models/documentType";
+export {
+  DOCUMENT_DESTINATION_PATHS,
+  DOCUMENT_DISPLAY_NAMES,
+  GENERATABLE_DOCUMENT_TYPES,
+  getDocumentDestinationPath,
+  getDocumentDisplayName,
+} from "./models/documentType";
+export type {
+  DraftDocument,
+  DraftDocumentSource,
+  DraftDocumentStatus,
+} from "./models/draftDocument";
+export type { DocumentOpportunity } from "./documents/documentOpportunities";
+export { getDocumentOpportunities } from "./documents/documentOpportunities";
+export { documentExistsAtDestination } from "./documents/document-existence";
+export {
+  detectInstallCommand,
+  detectPackageManager,
+  detectTestCommand,
+  getLicenseDisplayName,
+  getPrimaryLanguage,
+  getRepositoryDescription,
+  repositoryHasCi,
+  repositoryHasTests,
+} from "./documents/repository-fact-helpers";
+export {
+  mapRecommendationToDocumentTypes,
+  mapRelatedDocumentTypeToDocumentTypes,
+} from "./documents/recommendation-mapping";
+export {
+  documentTemplates,
+  getDocumentTemplate,
+  renderDocumentTemplate,
+} from "./documents/documentTemplates";
+export type {
+  DocumentTemplate,
+  TemplateRenderResult,
+} from "./documents/template-types";
+export type {
   CheckResult,
   HealthPlugin,
   HealthReport,

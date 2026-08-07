@@ -1,5 +1,6 @@
 import { useAuthState } from "../shared/hooks/useAuthState";
 import { DebugFactsPanel, HealthScoreView } from "./components/HealthScoreView";
+import { DocumentsView } from "./components/DocumentsView";
 import { useHealthReport } from "./useHealthReport";
 import { useRepoState } from "./useRepoState";
 import { useRepositoryFacts } from "./useRepositoryFacts";
@@ -13,6 +14,7 @@ export default function App() {
   const { authState, isLoading: isAuthLoading } = useAuthState();
   const {
     debugFacts,
+    facts,
     isLoading: isFactsLoading,
     error: factsError,
     repositoryKey,
@@ -98,6 +100,10 @@ export default function App() {
 
           {report ? <HealthScoreView report={report} /> : null}
         </section>
+      ) : null}
+
+      {showHealthSection && report && facts ? (
+        <DocumentsView facts={facts} report={report} />
       ) : null}
 
       {repository && authState.authenticated && repositoryKey ? (

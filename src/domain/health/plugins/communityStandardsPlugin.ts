@@ -271,7 +271,7 @@ export class CommunityStandardsHealthPlugin implements HealthPlugin {
             title: "Add issue templates",
             description:
               "Create .github/ISSUE_TEMPLATE files so new issues include useful context.",
-            actionType: "manual-fix",
+            actionType: "generate-document",
             relatedDocumentType: "issue-template",
             potentialPoints: check.pointsAvailable,
           },
@@ -284,7 +284,7 @@ export class CommunityStandardsHealthPlugin implements HealthPlugin {
             title: "Add a pull request template",
             description:
               "Add a PULL_REQUEST_TEMPLATE file in the root, .github, or docs directory.",
-            actionType: "manual-fix",
+            actionType: "generate-document",
             relatedDocumentType: "pull-request-template",
             potentialPoints: check.pointsAvailable,
           },

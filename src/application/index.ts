@@ -6,3 +6,4 @@ export { DisconnectGitHubUseCase } from "./DisconnectGitHubUseCase";
 export { GetAuthStateUseCase } from "./GetAuthStateUseCase";
 export { CollectRepositoryFactsUseCase } from "./CollectRepositoryFactsUseCase";
 export { EvaluateHealthUseCase } from "./EvaluateHealthUseCase";
+export { GenerateDocumentUseCase } from "./GenerateDocumentUseCase";
