@@ -6,7 +6,11 @@ export default defineManifest({
   description: "Analyze GitHub repository health and generate missing documentation.",
   version: "0.1.0",
   permissions: ["sidePanel", "storage"],
-  host_permissions: ["https://github.com/*", "https://api.github.com/*"],
+  host_permissions: [
+    "https://github.com/*",
+    "https://api.github.com/*",
+    "https://api.openai.com/*",
+  ],
   action: {
     default_title: "Open RepoReady",
   },

@@ -1,5 +1,5 @@
 import type { DocumentType } from "../models/documentType";
-import type { DraftDocument } from "../models/draftDocument";
+import type { DraftDocument, DraftDocumentAIMetadata } from "../models/draftDocument";
 
 export function computeIsDirty(content: string, originalContent: string): boolean {
   return content !== originalContent;
@@ -87,6 +87,7 @@ export function normalizeStoredDraft(value: unknown): DraftDocument | null {
   const originalContent =
     typeof draft.originalContent === "string" ? draft.originalContent : draft.content;
   const content = draft.content;
+  const aiMetadata = parseAIMetadata(draft.aiMetadata);
 
   return {
     id: draft.id,
@@ -103,7 +104,28 @@ export function normalizeStoredDraft(value: unknown): DraftDocument | null {
     warnings: draft.warnings.filter((warning): warning is string => typeof warning === "string"),
     status: draft.status as DraftDocument["status"],
     source: draft.source as DraftDocument["source"],
+    aiMetadata,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
+  };
+}
+
+function parseAIMetadata(value: unknown): DraftDocumentAIMetadata | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const metadata = value as Record<string, unknown>;
+
+  if (
+    typeof metadata.provider !== "string" ||
+    typeof metadata.model !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    provider: metadata.provider,
+    model: metadata.model,
   };
 }

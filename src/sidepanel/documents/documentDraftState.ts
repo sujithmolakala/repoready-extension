@@ -47,6 +47,24 @@ export function storeGeneratedDraft(
   };
 }
 
+export function replaceGeneratedDraft(
+  state: DocumentDraftState,
+  draft: DraftDocument,
+): DocumentDraftState {
+  const existingDraft = state.drafts[draft.documentType];
+
+  const nextDraft: DraftDocument =
+    existingDraft !== undefined
+      ? {
+          ...draft,
+          id: existingDraft.id,
+          createdAt: existingDraft.createdAt,
+        }
+      : draft;
+
+  return storeGeneratedDraft(state, nextDraft);
+}
+
 export function selectDraft(
   state: DocumentDraftState,
   documentType: DocumentType,

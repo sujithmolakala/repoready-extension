@@ -2,7 +2,12 @@ import type { DocumentType } from "./documentType";
 
 export type DraftDocumentStatus = "draft" | "editing" | "approved" | "written";
 
-export type DraftDocumentSource = "static-template";
+export type DraftDocumentSource = "static-template" | "ai-generated";
+
+export interface DraftDocumentAIMetadata {
+  provider: string;
+  model: string;
+}
 
 export interface DraftDocument {
   id: string;
@@ -16,6 +21,7 @@ export interface DraftDocument {
   warnings: string[];
   status: DraftDocumentStatus;
   source: DraftDocumentSource;
+  aiMetadata?: DraftDocumentAIMetadata;
   createdAt: string;
   updatedAt: string;
 }

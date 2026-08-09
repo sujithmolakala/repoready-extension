@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GenerateDocumentUseCase } from "../../application/GenerateDocumentUseCase";
+import { MAX_USER_INSTRUCTIONS_LENGTH } from "../../domain/ai/promptBuilder";
 import type { DocumentOpportunity } from "../../domain/documents/documentOpportunities";
 import { getDocumentOpportunities } from "../../domain/documents/documentOpportunities";
 import type { DraftDocument } from "../../domain/models/draftDocument";
@@ -8,15 +9,18 @@ import type { DocumentType } from "../../domain/models/documentType";
 import type { HealthReport } from "../../domain/models/healthReport";
 import type { RepositoryFacts } from "../../domain/models/repositoryFacts";
 import { DraftStore } from "../../infrastructure/storage/DraftStore";
+import { useOpenAIConfig } from "../../shared/hooks/useOpenAIConfig";
 import {
   createInitialDocumentDraftState,
   getSelectedDraft,
+  replaceGeneratedDraft,
   resetDraftContent,
   selectDraft,
   shouldShowPreviewDraftButton,
   storeGeneratedDraft,
   updateDraftContent,
 } from "../documents/documentDraftState";
+import { openOptionsPage, useAIGeneration } from "../documents/useAIGeneration";
 import { DraftPreviewView, type DraftViewMode } from "./DraftPreviewView";
 
 const generateDocumentUseCase = new GenerateDocumentUseCase();
@@ -32,10 +36,17 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     [facts, report],
   );
   const draftStore = useMemo(() => new DraftStore(), []);
+  const { openAIConfig, isLoading: isOpenAIConfigLoading } = useOpenAIConfig();
+  const { isGenerating, error: aiError, generateWithAI, clearError } =
+    useAIGeneration();
   const [draftState, setDraftState] = useState(createInitialDocumentDraftState);
   const [viewMode, setViewMode] = useState<DraftViewMode>("preview");
   const [previewFocusKey, setPreviewFocusKey] = useState(0);
   const [draftsLoaded, setDraftsLoaded] = useState(false);
+  const [userInstructions, setUserInstructions] = useState("");
+  const [hasAcknowledgedPrivacy, setHasAcknowledgedPrivacy] = useState(false);
+  const [generatingDocumentType, setGeneratingDocumentType] =
+    useState<DocumentType | null>(null);
   const previewRef = useRef<HTMLElement | null>(null);
 
   const selectedDraft = getSelectedDraft(draftState);
@@ -94,7 +105,7 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     });
   }, [previewFocusKey, selectedDraft]);
 
-  function handleGenerateDraft(documentType: DocumentType): void {
+  function handleGenerateStaticDraft(documentType: DocumentType): void {
     const draft = generateDocumentUseCase.execute({
       owner: facts.owner,
       repo: facts.name,
@@ -103,6 +114,54 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     });
 
     setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
+    setViewMode("preview");
+    setPreviewFocusKey((currentKey) => currentKey + 1);
+    clearError();
+  }
+
+  async function handleGenerateWithAI(
+    documentType: DocumentType,
+    regenerate = false,
+  ): Promise<void> {
+    if (!openAIConfig.configured || isGenerating) {
+      return;
+    }
+
+    const existingDraft = draftState.drafts[documentType];
+
+    if (
+      regenerate &&
+      existingDraft?.isDirty &&
+      !window.confirm(
+        "Regenerate with AI and discard your local edits to this draft?",
+      )
+    ) {
+      return;
+    }
+
+    setGeneratingDocumentType(documentType);
+    clearError();
+
+    const draft = await generateWithAI({
+      owner: facts.owner,
+      repo: facts.name,
+      documentType,
+      facts,
+      userInstructions:
+        userInstructions.trim().length > 0 ? userInstructions.trim() : undefined,
+    });
+
+    setGeneratingDocumentType(null);
+
+    if (draft === null) {
+      return;
+    }
+
+    setDraftState((currentState) =>
+      regenerate
+        ? replaceGeneratedDraft(currentState, draft)
+        : storeGeneratedDraft(currentState, draft),
+    );
     setViewMode("preview");
     setPreviewFocusKey((currentKey) => currentKey + 1);
   }
@@ -164,15 +223,25 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
       <div>
         <h2 className="text-sm font-medium text-slate-200">Documents</h2>
         <p className="mt-1 text-xs text-slate-400">
-          Generate conservative draft files from repository facts. Existing files are
-          not replaced.
+          Generate conservative draft files from repository facts, or use AI to
+          improve prose around verified facts. Existing files are not replaced.
         </p>
       </div>
 
       {selectedDraft ? (
         <DraftPreviewView
           draft={selectedDraft}
+          isRegenerating={
+            isGenerating && generatingDocumentType === selectedDraft.documentType
+          }
           onContentChange={handleContentChange}
+          onRegenerateWithAI={
+            openAIConfig.configured
+              ? () => {
+                  void handleGenerateWithAI(selectedDraft.documentType, true);
+                }
+              : undefined
+          }
           onReset={handleResetDraft}
           onViewModeChange={setViewMode}
           previewRef={previewRef}
@@ -180,18 +249,36 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
         />
       ) : null}
 
+      {aiError ? (
+        <p
+          className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-200"
+          data-testid="ai-generation-error"
+        >
+          {aiError.message}
+        </p>
+      ) : null}
+
       {opportunities.length > 0 ? (
         <ul className="space-y-3">
           {opportunities.map((opportunity) => (
             <DocumentOpportunityCard
               draft={draftState.drafts[opportunity.documentType] ?? null}
+              isGenerating={
+                isGenerating && generatingDocumentType === opportunity.documentType
+              }
+              isOpenAIConfigured={openAIConfig.configured}
+              isOpenAIConfigLoading={isOpenAIConfigLoading}
               isSelected={
                 draftState.selectedDocumentType === opportunity.documentType
               }
               key={opportunity.documentType}
-              onGenerateDraft={() => {
-                handleGenerateDraft(opportunity.documentType);
+              onGenerateStaticDraft={() => {
+                handleGenerateStaticDraft(opportunity.documentType);
               }}
+              onGenerateWithAI={() => {
+                void handleGenerateWithAI(opportunity.documentType);
+              }}
+              onOpenSettings={openOptionsPage}
               onPreviewDraft={() => {
                 handlePreviewDraft(opportunity.documentType);
               }}
@@ -204,6 +291,43 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
           ))}
         </ul>
       ) : null}
+
+      {openAIConfig.configured ? (
+        <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/50 p-3">
+          {!hasAcknowledgedPrivacy ? (
+            <p className="text-xs text-slate-400">
+              AI generation sends selected repository facts to OpenAI (repo name,
+              README excerpt, detected language/package manager, test/install
+              commands, relevant file metadata). Nothing is sent until you click
+              Generate with AI.
+              <button
+                className="ml-2 text-emerald-300 underline hover:text-emerald-200"
+                onClick={() => {
+                  setHasAcknowledgedPrivacy(true);
+                }}
+                type="button"
+              >
+                Got it
+              </button>
+            </p>
+          ) : null}
+          <label className="block space-y-1">
+            <span className="text-xs text-slate-400">
+              Additional instructions (optional)
+            </span>
+            <input
+              className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
+              maxLength={MAX_USER_INSTRUCTIONS_LENGTH}
+              onChange={(event) => {
+                setUserInstructions(event.target.value);
+              }}
+              placeholder="Keep this concise and friendly."
+              type="text"
+              value={userInstructions}
+            />
+          </label>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -213,15 +337,25 @@ export function DocumentOpportunityCard({
   draft,
   isSelected,
   showPreviewButton,
-  onGenerateDraft,
+  isOpenAIConfigured,
+  isOpenAIConfigLoading,
+  isGenerating,
+  onGenerateStaticDraft,
+  onGenerateWithAI,
   onPreviewDraft,
+  onOpenSettings,
 }: {
   opportunity: DocumentOpportunity;
   draft: DraftDocument | null;
   isSelected: boolean;
   showPreviewButton: boolean;
-  onGenerateDraft: () => void;
+  isOpenAIConfigured: boolean;
+  isOpenAIConfigLoading: boolean;
+  isGenerating: boolean;
+  onGenerateStaticDraft: () => void;
+  onGenerateWithAI: () => void;
   onPreviewDraft: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <li className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
@@ -241,12 +375,35 @@ export function DocumentOpportunityCard({
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
-          className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-slate-200"
-          onClick={onGenerateDraft}
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isGenerating}
+          onClick={onGenerateStaticDraft}
           type="button"
         >
-          Generate draft
+          Generate static draft
         </button>
+
+        {isOpenAIConfigLoading ? (
+          <span className="text-xs text-slate-500">Checking OpenAI…</span>
+        ) : isOpenAIConfigured ? (
+          <button
+            className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="generate-with-ai-button"
+            disabled={isGenerating}
+            onClick={onGenerateWithAI}
+            type="button"
+          >
+            {isGenerating ? "Generating…" : "Generate with AI"}
+          </button>
+        ) : (
+          <button
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-500"
+            onClick={onOpenSettings}
+            type="button"
+          >
+            Connect OpenAI in Settings
+          </button>
+        )}
 
         {showPreviewButton ? (
           <button
@@ -266,6 +423,7 @@ export function DocumentOpportunityCard({
       {draft ? (
         <p className="mt-2 text-xs text-slate-500" data-testid="draft-generated-indicator">
           {draft.isDirty ? "Edited draft ready for preview" : "Draft ready for preview"}
+          {draft.source === "ai-generated" ? " (AI-generated)" : ""}
         </p>
       ) : null}
     </li>

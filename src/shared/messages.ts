@@ -1,5 +1,10 @@
 import type { RepositoryFactsState } from "../domain/models/repositoryFacts";
 import type { HealthReportState } from "../domain/models/healthReport";
+import type { SanitizedOpenAIConfig } from "../domain/ai/aiConfig";
+import type { AIErrorPayload } from "../domain/ai/aiErrors";
+import type { DraftDocument } from "../domain/models/draftDocument";
+import type { DocumentType } from "../domain/models/documentType";
+import type { RepositoryFacts } from "../domain/models/repositoryFacts";
 
 export const MessageType = {
   REPO_DETECTED: "REPO_DETECTED",
@@ -13,6 +18,11 @@ export const MessageType = {
   REPOSITORY_FACTS_UPDATED: "REPOSITORY_FACTS_UPDATED",
   GET_HEALTH_REPORT: "GET_HEALTH_REPORT",
   HEALTH_REPORT_UPDATED: "HEALTH_REPORT_UPDATED",
+  GET_OPENAI_CONFIG: "GET_OPENAI_CONFIG",
+  OPENAI_CONFIG_UPDATED: "OPENAI_CONFIG_UPDATED",
+  VALIDATE_OPENAI_KEY: "VALIDATE_OPENAI_KEY",
+  DISCONNECT_OPENAI: "DISCONNECT_OPENAI",
+  GENERATE_DOCUMENT_WITH_AI: "GENERATE_DOCUMENT_WITH_AI",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -80,6 +90,41 @@ export interface HealthReportUpdatedMessage {
   };
 }
 
+export interface GetOpenAIConfigMessage {
+  type: typeof MessageType.GET_OPENAI_CONFIG;
+}
+
+export interface OpenAIConfigUpdatedMessage {
+  type: typeof MessageType.OPENAI_CONFIG_UPDATED;
+  payload: {
+    openAIConfig: SanitizedOpenAIConfig;
+  };
+}
+
+export interface ValidateOpenAIKeyMessage {
+  type: typeof MessageType.VALIDATE_OPENAI_KEY;
+  payload: {
+    apiKey: string;
+  };
+}
+
+export interface DisconnectOpenAIMessage {
+  type: typeof MessageType.DISCONNECT_OPENAI;
+}
+
+export interface GenerateDocumentWithAIMessage {
+  type: typeof MessageType.GENERATE_DOCUMENT_WITH_AI;
+  payload: GenerateDocumentWithAIPayload;
+}
+
+export interface GenerateDocumentWithAIPayload {
+  owner: string;
+  repo: string;
+  documentType: DocumentType;
+  facts: RepositoryFacts;
+  userInstructions?: string;
+}
+
 export type ExtensionMessage =
   | RepoDetectedMessage
   | GetRepoStateMessage
@@ -91,7 +136,12 @@ export type ExtensionMessage =
   | GetRepositoryFactsMessage
   | RepositoryFactsUpdatedMessage
   | GetHealthReportMessage
-  | HealthReportUpdatedMessage;
+  | HealthReportUpdatedMessage
+  | GetOpenAIConfigMessage
+  | OpenAIConfigUpdatedMessage
+  | ValidateOpenAIKeyMessage
+  | DisconnectOpenAIMessage
+  | GenerateDocumentWithAIMessage;
 
 export interface GetRepoStateResponse {
   repository: import("../domain/repository").GitHubRepository | null;
@@ -117,6 +167,26 @@ export interface GetRepositoryFactsResponse {
 
 export interface GetHealthReportResponse {
   healthState: HealthReportState;
+}
+
+export interface GetOpenAIConfigResponse {
+  openAIConfig: SanitizedOpenAIConfig;
+}
+
+export interface ValidateOpenAIKeyResponse {
+  success: boolean;
+  openAIConfig?: SanitizedOpenAIConfig;
+  error?: AIErrorPayload;
+}
+
+export interface DisconnectOpenAIResponse {
+  success: boolean;
+}
+
+export interface GenerateDocumentWithAIResponse {
+  success: boolean;
+  draft?: DraftDocument;
+  error?: AIErrorPayload;
 }
 
 export function isGetRepoStateResponse(
@@ -295,6 +365,103 @@ export function isSanitizedAuthState(value: unknown): value is import("../domain
   );
 }
 
+export function isSanitizedOpenAIConfig(
+  value: unknown,
+): value is SanitizedOpenAIConfig {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const config = value as Record<string, unknown>;
+
+  if ("apiKey" in config) {
+    return false;
+  }
+
+  return (
+    typeof config.configured === "boolean" &&
+    config.provider === "openai" &&
+    (typeof config.validatedAt === "string" || config.validatedAt === null)
+  );
+}
+
+export function isGetOpenAIConfigResponse(
+  value: unknown,
+): value is GetOpenAIConfigResponse {
+  if (typeof value !== "object" || value === null || !("openAIConfig" in value)) {
+    return false;
+  }
+
+  return isSanitizedOpenAIConfig(value.openAIConfig);
+}
+
+export function isValidateOpenAIKeyResponse(
+  value: unknown,
+): value is ValidateOpenAIKeyResponse {
+  if (typeof value !== "object" || value === null || !("success" in value)) {
+    return false;
+  }
+
+  const response = value as ValidateOpenAIKeyResponse;
+
+  if (typeof response.success !== "boolean") {
+    return false;
+  }
+
+  if (
+    response.openAIConfig !== undefined &&
+    !isSanitizedOpenAIConfig(response.openAIConfig)
+  ) {
+    return false;
+  }
+
+  if ("apiKey" in response) {
+    return false;
+  }
+
+  return true;
+}
+
+export function isDisconnectOpenAIResponse(
+  value: unknown,
+): value is DisconnectOpenAIResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "success" in value &&
+    typeof value.success === "boolean" &&
+    !("apiKey" in value)
+  );
+}
+
+export function isGenerateDocumentWithAIResponse(
+  value: unknown,
+): value is GenerateDocumentWithAIResponse {
+  if (typeof value !== "object" || value === null || !("success" in value)) {
+    return false;
+  }
+
+  const response = value as GenerateDocumentWithAIResponse;
+
+  if (typeof response.success !== "boolean") {
+    return false;
+  }
+
+  if ("apiKey" in response || "prompt" in response) {
+    return false;
+  }
+
+  if (response.draft !== undefined) {
+    const draft = response.draft as unknown as Record<string, unknown>;
+
+    if ("apiKey" in draft || "prompt" in draft) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
@@ -313,6 +480,11 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     messageType === MessageType.GET_REPOSITORY_FACTS ||
     messageType === MessageType.REPOSITORY_FACTS_UPDATED ||
     messageType === MessageType.GET_HEALTH_REPORT ||
-    messageType === MessageType.HEALTH_REPORT_UPDATED
+    messageType === MessageType.HEALTH_REPORT_UPDATED ||
+    messageType === MessageType.GET_OPENAI_CONFIG ||
+    messageType === MessageType.OPENAI_CONFIG_UPDATED ||
+    messageType === MessageType.VALIDATE_OPENAI_KEY ||
+    messageType === MessageType.DISCONNECT_OPENAI ||
+    messageType === MessageType.GENERATE_DOCUMENT_WITH_AI
   );
 }

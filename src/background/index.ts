@@ -1,15 +1,22 @@
 import { RepoStateStore } from "../application/repo-state-store";
 import { CollectRepositoryFactsUseCase } from "../application/CollectRepositoryFactsUseCase";
 import { DisconnectGitHubUseCase } from "../application/DisconnectGitHubUseCase";
+import { DisconnectOpenAIUseCase } from "../application/DisconnectOpenAIUseCase";
 import { EvaluateHealthUseCase } from "../application/EvaluateHealthUseCase";
+import { GenerateDocumentWithAIUseCase } from "../application/GenerateDocumentWithAIUseCase";
 import { GetAuthStateUseCase } from "../application/GetAuthStateUseCase";
+import { GetOpenAIConfigUseCase } from "../application/GetOpenAIConfigUseCase";
 import { HealthReportStore } from "../application/health-report-store";
 import { RepositoryFactsStore } from "../application/repository-facts-store";
 import { ValidateGitHubTokenUseCase } from "../application/ValidateGitHubTokenUseCase";
+import { ValidateOpenAIKeyUseCase } from "../application/ValidateOpenAIKeyUseCase";
 import { AuthErrorCode } from "../domain/errors";
+import { AIErrorCode } from "../domain/ai/aiErrors";
 import { PATAuthProvider } from "../infrastructure/auth/PATAuthProvider";
+import { OpenAIProvider } from "../infrastructure/ai/OpenAIProvider";
 import { FactCollector } from "../infrastructure/github/FactCollector";
 import { GitHubClient } from "../infrastructure/github/GitHubClient";
+import { OpenAIKeyStore } from "../infrastructure/storage/OpenAIKeyStore";
 import { TokenStore } from "../infrastructure/storage/TokenStore";
 import {
   MessageType,
@@ -27,6 +34,11 @@ import {
   createHealthReportHandlers,
 } from "./health-handlers";
 import {
+  createOpenAIConfigBroadcaster,
+  createOpenAIHandlers,
+} from "./openai-handlers";
+
+import {
   createRepositoryFactsBroadcaster,
   createRepositoryFactsHandlers,
 } from "./repository-facts-handlers";
@@ -37,21 +49,33 @@ const repoStateStore = new RepoStateStore();
 const repositoryFactsStore = new RepositoryFactsStore();
 const healthReportStore = new HealthReportStore();
 const tokenStore = new TokenStore();
+const openAIKeyStore = new OpenAIKeyStore();
 const authProvider = new PATAuthProvider(tokenStore);
 const githubClient = new GitHubClient(authProvider);
 const factCollector = new FactCollector(githubClient);
+const openAIProvider = new OpenAIProvider(() => openAIKeyStore.getApiKey());
 const getAuthStateUseCase = new GetAuthStateUseCase(tokenStore);
+const getOpenAIConfigUseCase = new GetOpenAIConfigUseCase(openAIKeyStore);
 const validateGitHubTokenUseCase = new ValidateGitHubTokenUseCase(
   githubClient,
   tokenStore,
 );
+const validateOpenAIKeyUseCase = new ValidateOpenAIKeyUseCase(
+  openAIKeyStore,
+  openAIProvider,
+);
 const disconnectGitHubUseCase = new DisconnectGitHubUseCase(tokenStore);
+const disconnectOpenAIUseCase = new DisconnectOpenAIUseCase(openAIKeyStore);
+const generateDocumentWithAIUseCase = new GenerateDocumentWithAIUseCase(
+  openAIProvider,
+);
 const collectRepositoryFactsUseCase = new CollectRepositoryFactsUseCase(
   factCollector,
   authProvider,
 );
 const evaluateHealthUseCase = new EvaluateHealthUseCase();
 const broadcastAuthState = createAuthStateBroadcaster();
+const broadcastOpenAIConfig = createOpenAIConfigBroadcaster();
 const broadcastRepositoryFacts = createRepositoryFactsBroadcaster();
 const broadcastHealthReport = createHealthReportBroadcaster();
 const healthReportHandlers = createHealthReportHandlers(
@@ -64,6 +88,13 @@ const authHandlers = createAuthHandlers(
   validateGitHubTokenUseCase,
   disconnectGitHubUseCase,
   broadcastAuthState,
+);
+const openAIHandlers = createOpenAIHandlers(
+  getOpenAIConfigUseCase,
+  validateOpenAIKeyUseCase,
+  disconnectOpenAIUseCase,
+  generateDocumentWithAIUseCase,
+  broadcastOpenAIConfig,
 );
 const repositoryFactsHandlers = createRepositoryFactsHandlers(
   collectRepositoryFactsUseCase,
@@ -233,6 +264,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       });
     });
+
+    return true;
+  }
+
+  if (message.type === MessageType.GET_OPENAI_CONFIG) {
+    void openAIHandlers.handleGetOpenAIConfig().then((response) => {
+      sendResponse(response);
+    });
+
+    return true;
+  }
+
+  if (message.type === MessageType.VALIDATE_OPENAI_KEY) {
+    void openAIHandlers
+      .handleValidateOpenAIKey(message.payload.apiKey)
+      .then((response) => {
+        sendResponse(response);
+      })
+      .catch(() => {
+        sendResponse({
+          success: false,
+          error: {
+            code: AIErrorCode.PROVIDER_UNAVAILABLE,
+            message: "OpenAI returned an unexpected response. Try again later.",
+          },
+        });
+      });
+
+    return true;
+  }
+
+  if (message.type === MessageType.DISCONNECT_OPENAI) {
+    void openAIHandlers.handleDisconnectOpenAI().then((response) => {
+      sendResponse(response);
+    });
+
+    return true;
+  }
+
+  if (message.type === MessageType.GENERATE_DOCUMENT_WITH_AI) {
+    void openAIHandlers
+      .handleGenerateDocumentWithAI(message.payload)
+      .then((response) => {
+        sendResponse(response);
+      })
+      .catch(() => {
+        sendResponse({
+          success: false,
+          error: {
+            code: AIErrorCode.PROVIDER_UNAVAILABLE,
+            message: "OpenAI returned an unexpected response. Try again later.",
+          },
+        });
+      });
 
     return true;
   }

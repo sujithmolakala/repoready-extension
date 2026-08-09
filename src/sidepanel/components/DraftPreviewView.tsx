@@ -13,6 +13,15 @@ import { SafeMarkdownPreview } from "./SafeMarkdownPreview";
 
 export type DraftViewMode = "preview" | "edit";
 
+function getSourceLabel(draft: DraftDocument): string {
+  if (draft.source === "ai-generated") {
+    const model = draft.aiMetadata?.model;
+    return model !== undefined ? `AI-generated (${model})` : "AI-generated";
+  }
+
+  return "Static template";
+}
+
 export function DraftPreviewView({
   draft,
   previewRef,
@@ -20,6 +29,8 @@ export function DraftPreviewView({
   onViewModeChange,
   onContentChange,
   onReset,
+  onRegenerateWithAI,
+  isRegenerating = false,
 }: {
   draft: DraftDocument;
   previewRef?: RefObject<HTMLElement | null>;
@@ -27,6 +38,8 @@ export function DraftPreviewView({
   onViewModeChange: (mode: DraftViewMode) => void;
   onContentChange: (content: string) => void;
   onReset: () => void;
+  onRegenerateWithAI?: () => void;
+  isRegenerating?: boolean;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -55,6 +68,14 @@ export function DraftPreviewView({
     downloadMarkdownFile(draft.content, downloadFilename);
   }
 
+  function handleRegenerate(): void {
+    if (onRegenerateWithAI === undefined || isRegenerating) {
+      return;
+    }
+
+    onRegenerateWithAI();
+  }
+
   return (
     <section
       className="rounded-md border border-emerald-900/40 bg-slate-950/70 p-3"
@@ -70,7 +91,7 @@ export function DraftPreviewView({
         </div>
         <div className="text-right text-xs text-slate-400">
           <p>Status: {draft.status}</p>
-          <p>Source: Static template</p>
+          <p>Source: {getSourceLabel(draft)}</p>
           {draft.isDirty ? (
             <p className="text-amber-300" data-testid="draft-dirty-indicator">
               Unsaved local changes
@@ -83,7 +104,10 @@ export function DraftPreviewView({
       </div>
 
       {draft.warnings.length > 0 ? (
-        <ul className="mt-3 space-y-1 rounded-md border border-amber-900/40 bg-amber-950/20 p-3">
+        <ul
+          className="mt-3 space-y-1 rounded-md border border-amber-900/40 bg-amber-950/20 p-3"
+          data-testid="draft-warnings"
+        >
           {draft.warnings.map((warning) => (
             <li className="text-xs text-amber-200" key={warning}>
               {warning}
@@ -120,6 +144,17 @@ export function DraftPreviewView({
         >
           Reset draft
         </button>
+        {draft.source === "ai-generated" && onRegenerateWithAI !== undefined ? (
+          <button
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="regenerate-with-ai-button"
+            disabled={isRegenerating}
+            onClick={handleRegenerate}
+            type="button"
+          >
+            {isRegenerating ? "Regenerating…" : "Regenerate with AI"}
+          </button>
+        ) : null}
         {copyState === "copied" ? (
           <span className="text-xs text-emerald-300" data-testid="copy-success-message">
             Copied
