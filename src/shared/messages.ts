@@ -1,3 +1,8 @@
+import type { GitHubWriteErrorPayload } from "../domain/github/writeErrors";
+import type {
+  CreatePullRequestResult,
+  WritePlan,
+} from "../domain/github/writeTypes";
 import type { RepositoryFactsState } from "../domain/models/repositoryFacts";
 import type { HealthReportState } from "../domain/models/healthReport";
 import type { SanitizedOpenAIConfig } from "../domain/ai/aiConfig";
@@ -23,6 +28,8 @@ export const MessageType = {
   VALIDATE_OPENAI_KEY: "VALIDATE_OPENAI_KEY",
   DISCONNECT_OPENAI: "DISCONNECT_OPENAI",
   GENERATE_DOCUMENT_WITH_AI: "GENERATE_DOCUMENT_WITH_AI",
+  PREPARE_WRITE_PLAN: "PREPARE_WRITE_PLAN",
+  CREATE_PULL_REQUEST: "CREATE_PULL_REQUEST",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -125,6 +132,32 @@ export interface GenerateDocumentWithAIPayload {
   userInstructions?: string;
 }
 
+export interface PrepareWritePlanMessage {
+  type: typeof MessageType.PREPARE_WRITE_PLAN;
+  payload: PrepareWritePlanPayload;
+}
+
+export interface PrepareWritePlanPayload {
+  facts: RepositoryFacts;
+  draft: DraftDocument;
+  destinationPath?: string;
+}
+
+export interface CreatePullRequestMessage {
+  type: typeof MessageType.CREATE_PULL_REQUEST;
+  payload: CreatePullRequestPayload;
+}
+
+export interface CreatePullRequestPayload {
+  facts: RepositoryFacts;
+  draft: DraftDocument;
+  destinationPath: string;
+  branchName: string;
+  commitMessage: string;
+  pullRequestTitle: string;
+  pullRequestBody: string;
+}
+
 export type ExtensionMessage =
   | RepoDetectedMessage
   | GetRepoStateMessage
@@ -141,7 +174,9 @@ export type ExtensionMessage =
   | OpenAIConfigUpdatedMessage
   | ValidateOpenAIKeyMessage
   | DisconnectOpenAIMessage
-  | GenerateDocumentWithAIMessage;
+  | GenerateDocumentWithAIMessage
+  | PrepareWritePlanMessage
+  | CreatePullRequestMessage;
 
 export interface GetRepoStateResponse {
   repository: import("../domain/repository").GitHubRepository | null;
@@ -187,6 +222,18 @@ export interface GenerateDocumentWithAIResponse {
   success: boolean;
   draft?: DraftDocument;
   error?: AIErrorPayload;
+}
+
+export interface PrepareWritePlanResponse {
+  success: boolean;
+  plan?: WritePlan;
+  error?: GitHubWriteErrorPayload;
+}
+
+export interface CreatePullRequestResponse {
+  success: boolean;
+  result?: CreatePullRequestResult;
+  error?: GitHubWriteErrorPayload;
 }
 
 export function isGetRepoStateResponse(
@@ -462,6 +509,30 @@ export function isGenerateDocumentWithAIResponse(
   return true;
 }
 
+export function isPrepareWritePlanResponse(
+  value: unknown,
+): value is PrepareWritePlanResponse {
+  if (typeof value !== "object" || value === null || !("success" in value)) {
+    return false;
+  }
+
+  const response = value as PrepareWritePlanResponse;
+
+  return typeof response.success === "boolean";
+}
+
+export function isCreatePullRequestResponse(
+  value: unknown,
+): value is CreatePullRequestResponse {
+  if (typeof value !== "object" || value === null || !("success" in value)) {
+    return false;
+  }
+
+  const response = value as CreatePullRequestResponse;
+
+  return typeof response.success === "boolean";
+}
+
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {
   if (typeof value !== "object" || value === null || !("type" in value)) {
     return false;
@@ -485,6 +556,8 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     messageType === MessageType.OPENAI_CONFIG_UPDATED ||
     messageType === MessageType.VALIDATE_OPENAI_KEY ||
     messageType === MessageType.DISCONNECT_OPENAI ||
-    messageType === MessageType.GENERATE_DOCUMENT_WITH_AI
+    messageType === MessageType.GENERATE_DOCUMENT_WITH_AI ||
+    messageType === MessageType.PREPARE_WRITE_PLAN ||
+    messageType === MessageType.CREATE_PULL_REQUEST
   );
 }

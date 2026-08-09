@@ -30,6 +30,8 @@ export function DraftPreviewView({
   onContentChange,
   onReset,
   onRegenerateWithAI,
+  onCreatePullRequest,
+  isPreparingPullRequest = false,
   isRegenerating = false,
 }: {
   draft: DraftDocument;
@@ -39,6 +41,8 @@ export function DraftPreviewView({
   onContentChange: (content: string) => void;
   onReset: () => void;
   onRegenerateWithAI?: () => void;
+  onCreatePullRequest?: () => void;
+  isPreparingPullRequest?: boolean;
   isRegenerating?: boolean;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -153,6 +157,21 @@ export function DraftPreviewView({
             type="button"
           >
             {isRegenerating ? "Regenerating…" : "Regenerate with AI"}
+          </button>
+        ) : null}
+        {onCreatePullRequest !== undefined ? (
+          <button
+            className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid="create-pull-request-button"
+            disabled={isPreparingPullRequest || draft.status === "written"}
+            onClick={onCreatePullRequest}
+            type="button"
+          >
+            {isPreparingPullRequest
+              ? "Preparing…"
+              : draft.status === "written"
+                ? "Pull request created"
+                : "Create Pull Request"}
           </button>
         ) : null}
         {copyState === "copied" ? (

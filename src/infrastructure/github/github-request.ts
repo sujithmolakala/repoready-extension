@@ -1,4 +1,8 @@
 import { AuthError, AuthErrorCode } from "../../domain/errors";
+import {
+  GitHubWriteError,
+  GitHubWriteErrorCode,
+} from "../../domain/github/writeErrors";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
@@ -10,19 +14,34 @@ export interface GitHubRequestOptions {
   allowNotFound?: boolean;
 }
 
+export type GitHubHttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+export interface GitHubJsonRequestOptions extends GitHubRequestOptions {
+  method?: GitHubHttpMethod;
+  body?: unknown;
+  expectedStatuses?: readonly number[];
+}
+
 export async function githubFetch(
   fetchFn: FetchFn,
   token: string,
   path: string,
+  init: RequestInit = {},
 ): Promise<Response> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: GITHUB_ACCEPT,
+    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+  };
+
+  if (init.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   try {
     return await fetchFn(`${GITHUB_API_BASE}${path}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: GITHUB_ACCEPT,
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-      },
+      ...init,
+      headers,
     });
   } catch {
     throw new AuthError(
@@ -36,18 +55,28 @@ export async function githubFetchJson(
   fetchFn: FetchFn,
   token: string,
   path: string,
-  options: GitHubRequestOptions = {},
+  options: GitHubJsonRequestOptions = {},
 ): Promise<unknown> {
-  const response = await githubFetch(fetchFn, token, path);
+  const method = options.method ?? "GET";
+  const response = await githubFetch(fetchFn, token, path, {
+    method,
+    body:
+      options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  });
 
   if (response.status === 404 && options.allowNotFound) {
     return null;
   }
 
-  const statusError = mapHttpStatusError(response);
+  const expectedStatuses = options.expectedStatuses ?? [200];
+  const statusError = mapHttpStatusError(response, expectedStatuses);
 
   if (statusError !== null) {
     throw statusError;
+  }
+
+  if (response.status === 204) {
+    return null;
   }
 
   try {
@@ -60,7 +89,52 @@ export async function githubFetchJson(
   }
 }
 
-function mapHttpStatusError(response: Response): AuthError | null {
+export async function githubWriteFetchJson(
+  fetchFn: FetchFn,
+  token: string,
+  path: string,
+  options: GitHubJsonRequestOptions = {},
+): Promise<unknown> {
+  const method = options.method ?? "GET";
+  const response = await githubFetch(fetchFn, token, path, {
+    method,
+    body:
+      options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (response.status === 404 && options.allowNotFound) {
+    return null;
+  }
+
+  const expectedStatuses = options.expectedStatuses ?? [200];
+  const statusError = mapWriteHttpStatusError(response, expectedStatuses);
+
+  if (statusError !== null) {
+    throw statusError;
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new GitHubWriteError(
+      GitHubWriteErrorCode.MALFORMED_RESPONSE,
+      "GitHub returned a malformed response.",
+    );
+  }
+}
+
+function mapHttpStatusError(
+  response: Response,
+  expectedStatuses: readonly number[] = [200],
+): AuthError | null {
+  if (expectedStatuses.includes(response.status)) {
+    return null;
+  }
+
   if (response.status === 401) {
     return new AuthError(
       AuthErrorCode.INVALID_TOKEN,
@@ -90,14 +164,53 @@ function mapHttpStatusError(response: Response): AuthError | null {
     );
   }
 
-  if (response.status !== 200) {
-    return new AuthError(
-      AuthErrorCode.API_UNAVAILABLE,
-      "GitHub returned an unexpected response. Try again later.",
+  return new AuthError(
+    AuthErrorCode.API_UNAVAILABLE,
+    "GitHub returned an unexpected response. Try again later.",
+  );
+}
+
+function mapWriteHttpStatusError(
+  response: Response,
+  expectedStatuses: readonly number[] = [200],
+): GitHubWriteError | null {
+  if (expectedStatuses.includes(response.status)) {
+    return null;
+  }
+
+  if (response.status === 401) {
+    return new GitHubWriteError(
+      GitHubWriteErrorCode.MISSING_TOKEN,
+      "Connect GitHub with a token that can write to this repository.",
     );
   }
 
-  return null;
+  if (isRateLimited(response)) {
+    return new GitHubWriteError(
+      GitHubWriteErrorCode.RATE_LIMITED,
+      formatRateLimitMessage(response),
+      getRetryAfterSeconds(response),
+    );
+  }
+
+  if (response.status === 403) {
+    return new GitHubWriteError(
+      GitHubWriteErrorCode.INSUFFICIENT_PERMISSIONS,
+      "This token does not have sufficient permissions to write to the repository.",
+    );
+  }
+
+  if (response.status >= 500) {
+    return new GitHubWriteError(
+      GitHubWriteErrorCode.API_UNAVAILABLE,
+      "GitHub is temporarily unavailable. Try again later.",
+    );
+  }
+
+  return new GitHubWriteError(
+    GitHubWriteErrorCode.API_UNAVAILABLE,
+    "GitHub returned an unexpected response. Try again later.",
+  );
 }
 
 function isRateLimited(response: Response): boolean {

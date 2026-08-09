@@ -47,6 +47,29 @@ export function storeGeneratedDraft(
   };
 }
 
+export function markDraftWritten(
+  state: DocumentDraftState,
+  documentType: DocumentType,
+  updatedAt: string,
+): DocumentDraftState {
+  const existingDraft = state.drafts[documentType];
+
+  if (existingDraft === undefined) {
+    return state;
+  }
+
+  return {
+    ...state,
+    drafts: {
+      ...state.drafts,
+      [documentType]: {
+        ...existingDraft,
+        status: "written",
+        updatedAt,
+      },
+    },
+  };
+}
 export function replaceGeneratedDraft(
   state: DocumentDraftState,
   draft: DraftDocument,

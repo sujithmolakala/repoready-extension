@@ -3,7 +3,11 @@ import { CollectRepositoryFactsUseCase } from "../application/CollectRepositoryF
 import { DisconnectGitHubUseCase } from "../application/DisconnectGitHubUseCase";
 import { DisconnectOpenAIUseCase } from "../application/DisconnectOpenAIUseCase";
 import { EvaluateHealthUseCase } from "../application/EvaluateHealthUseCase";
-import { GenerateDocumentWithAIUseCase } from "../application/GenerateDocumentWithAIUseCase";
+import { PrepareWritePlanUseCase } from "../application/PrepareWritePlanUseCase";
+import {
+  CreatePullRequestUseCase,
+  PrepareWritePlanApplicationUseCase,
+} from "../application/CreatePullRequestUseCase";
 import { GetAuthStateUseCase } from "../application/GetAuthStateUseCase";
 import { GetOpenAIConfigUseCase } from "../application/GetOpenAIConfigUseCase";
 import { HealthReportStore } from "../application/health-report-store";
@@ -12,8 +16,11 @@ import { ValidateGitHubTokenUseCase } from "../application/ValidateGitHubTokenUs
 import { ValidateOpenAIKeyUseCase } from "../application/ValidateOpenAIKeyUseCase";
 import { AuthErrorCode } from "../domain/errors";
 import { AIErrorCode } from "../domain/ai/aiErrors";
+import { GitHubWriteErrorCode } from "../domain/github/writeErrors";
 import { PATAuthProvider } from "../infrastructure/auth/PATAuthProvider";
 import { OpenAIProvider } from "../infrastructure/ai/OpenAIProvider";
+import { GenerateDocumentWithAIUseCase } from "../application/GenerateDocumentWithAIUseCase";
+import { GitHubWriterImpl } from "../infrastructure/github/GitHubWriterImpl";
 import { FactCollector } from "../infrastructure/github/FactCollector";
 import { GitHubClient } from "../infrastructure/github/GitHubClient";
 import { OpenAIKeyStore } from "../infrastructure/storage/OpenAIKeyStore";
@@ -39,6 +46,10 @@ import {
 } from "./openai-handlers";
 
 import {
+  createWriteHandlers,
+} from "./write-handlers";
+
+import {
   createRepositoryFactsBroadcaster,
   createRepositoryFactsHandlers,
 } from "./repository-facts-handlers";
@@ -52,6 +63,7 @@ const tokenStore = new TokenStore();
 const openAIKeyStore = new OpenAIKeyStore();
 const authProvider = new PATAuthProvider(tokenStore);
 const githubClient = new GitHubClient(authProvider);
+const gitHubWriter = new GitHubWriterImpl(authProvider);
 const factCollector = new FactCollector(githubClient);
 const openAIProvider = new OpenAIProvider(() => openAIKeyStore.getApiKey());
 const getAuthStateUseCase = new GetAuthStateUseCase(tokenStore);
@@ -69,6 +81,12 @@ const disconnectOpenAIUseCase = new DisconnectOpenAIUseCase(openAIKeyStore);
 const generateDocumentWithAIUseCase = new GenerateDocumentWithAIUseCase(
   openAIProvider,
 );
+const prepareWritePlanUseCase = new PrepareWritePlanUseCase();
+const prepareWritePlanApplicationUseCase = new PrepareWritePlanApplicationUseCase(
+  prepareWritePlanUseCase,
+  gitHubWriter,
+);
+const createPullRequestUseCase = new CreatePullRequestUseCase(gitHubWriter);
 const collectRepositoryFactsUseCase = new CollectRepositoryFactsUseCase(
   factCollector,
   authProvider,
@@ -95,6 +113,10 @@ const openAIHandlers = createOpenAIHandlers(
   disconnectOpenAIUseCase,
   generateDocumentWithAIUseCase,
   broadcastOpenAIConfig,
+);
+const writeHandlers = createWriteHandlers(
+  prepareWritePlanApplicationUseCase,
+  createPullRequestUseCase,
 );
 const repositoryFactsHandlers = createRepositoryFactsHandlers(
   collectRepositoryFactsUseCase,
@@ -315,6 +337,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           error: {
             code: AIErrorCode.PROVIDER_UNAVAILABLE,
             message: "OpenAI returned an unexpected response. Try again later.",
+          },
+        });
+      });
+
+    return true;
+  }
+
+  if (message.type === MessageType.PREPARE_WRITE_PLAN) {
+    void writeHandlers.handlePrepareWritePlan(message.payload).then((response) => {
+      sendResponse(response);
+    });
+
+    return true;
+  }
+
+  if (message.type === MessageType.CREATE_PULL_REQUEST) {
+    void writeHandlers
+      .handleCreatePullRequest(message.payload)
+      .then((response) => {
+        sendResponse(response);
+      })
+      .catch(() => {
+        sendResponse({
+          success: false,
+          error: {
+            code: GitHubWriteErrorCode.API_UNAVAILABLE,
+            message: "Could not create the pull request. Try again.",
           },
         });
       });

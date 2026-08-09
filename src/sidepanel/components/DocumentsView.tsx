@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GenerateDocumentUseCase } from "../../application/GenerateDocumentUseCase";
 import { MAX_USER_INSTRUCTIONS_LENGTH } from "../../domain/ai/promptBuilder";
+import type { CreatePullRequestResult, WritePlan } from "../../domain/github/writeTypes";
 import type { DocumentOpportunity } from "../../domain/documents/documentOpportunities";
 import { getDocumentOpportunities } from "../../domain/documents/documentOpportunities";
 import type { DraftDocument } from "../../domain/models/draftDocument";
@@ -9,10 +10,12 @@ import type { DocumentType } from "../../domain/models/documentType";
 import type { HealthReport } from "../../domain/models/healthReport";
 import type { RepositoryFacts } from "../../domain/models/repositoryFacts";
 import { DraftStore } from "../../infrastructure/storage/DraftStore";
+import { useAuthState } from "../../shared/hooks/useAuthState";
 import { useOpenAIConfig } from "../../shared/hooks/useOpenAIConfig";
 import {
   createInitialDocumentDraftState,
   getSelectedDraft,
+  markDraftWritten,
   replaceGeneratedDraft,
   resetDraftContent,
   selectDraft,
@@ -21,7 +24,13 @@ import {
   updateDraftContent,
 } from "../documents/documentDraftState";
 import { openOptionsPage, useAIGeneration } from "../documents/useAIGeneration";
+import { useWritePipeline } from "../documents/useWritePipeline";
+import {
+  ApprovalDrawer,
+  type ApprovalDrawerValues,
+} from "./ApprovalDrawer";
 import { DraftPreviewView, type DraftViewMode } from "./DraftPreviewView";
+import { WriteSuccessView } from "./WriteSuccessView";
 
 const generateDocumentUseCase = new GenerateDocumentUseCase();
 
@@ -36,9 +45,18 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     [facts, report],
   );
   const draftStore = useMemo(() => new DraftStore(), []);
+  const { authState } = useAuthState();
   const { openAIConfig, isLoading: isOpenAIConfigLoading } = useOpenAIConfig();
   const { isGenerating, error: aiError, generateWithAI, clearError } =
     useAIGeneration();
+  const {
+    isPreparing,
+    isSubmitting,
+    error: writeError,
+    prepareWritePlan,
+    createPullRequest,
+    clearError: clearWriteError,
+  } = useWritePipeline();
   const [draftState, setDraftState] = useState(createInitialDocumentDraftState);
   const [viewMode, setViewMode] = useState<DraftViewMode>("preview");
   const [previewFocusKey, setPreviewFocusKey] = useState(0);
@@ -47,6 +65,13 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
   const [hasAcknowledgedPrivacy, setHasAcknowledgedPrivacy] = useState(false);
   const [generatingDocumentType, setGeneratingDocumentType] =
     useState<DocumentType | null>(null);
+  const [writePlan, setWritePlan] = useState<WritePlan | null>(null);
+  const [approvalValues, setApprovalValues] = useState<ApprovalDrawerValues | null>(
+    null,
+  );
+  const [writeResult, setWriteResult] = useState<CreatePullRequestResult | null>(
+    null,
+  );
   const previewRef = useRef<HTMLElement | null>(null);
 
   const selectedDraft = getSelectedDraft(draftState);
@@ -207,6 +232,69 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
     );
   }
 
+  function closeApprovalDrawer(): void {
+    setWritePlan(null);
+    setApprovalValues(null);
+    clearWriteError();
+  }
+
+  async function handleOpenApprovalDrawer(): Promise<void> {
+    if (selectedDraft === null || !authState.authenticated) {
+      return;
+    }
+
+    clearWriteError();
+    const plan = await prepareWritePlan({
+      facts,
+      draft: selectedDraft,
+    });
+
+    if (plan === null) {
+      return;
+    }
+
+    setWritePlan(plan);
+    setApprovalValues({
+      destinationPath: plan.destinationPath,
+      branchName: plan.branchName,
+      commitMessage: plan.commitMessage,
+      pullRequestTitle: plan.pullRequestTitle,
+      pullRequestBody: plan.pullRequestBody,
+    });
+    setWriteResult(null);
+  }
+
+  async function handleConfirmCreatePullRequest(): Promise<void> {
+    if (selectedDraft === null || approvalValues === null || writePlan === null) {
+      return;
+    }
+
+    const result = await createPullRequest({
+      facts,
+      draft: selectedDraft,
+      destinationPath: approvalValues.destinationPath,
+      branchName: approvalValues.branchName,
+      commitMessage: approvalValues.commitMessage,
+      pullRequestTitle: approvalValues.pullRequestTitle,
+      pullRequestBody: approvalValues.pullRequestBody,
+    });
+
+    if (result === null) {
+      return;
+    }
+
+    setWriteResult(result);
+    setWritePlan(null);
+    setApprovalValues(null);
+    setDraftState((currentState) =>
+      markDraftWritten(
+        currentState,
+        selectedDraft.documentType,
+        new Date().toISOString(),
+      ),
+    );
+  }
+
   if (opportunities.length === 0 && Object.keys(draftState.drafts).length === 0) {
     return (
       <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
@@ -231,10 +319,18 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
       {selectedDraft ? (
         <DraftPreviewView
           draft={selectedDraft}
+          isPreparingPullRequest={isPreparing}
           isRegenerating={
             isGenerating && generatingDocumentType === selectedDraft.documentType
           }
           onContentChange={handleContentChange}
+          onCreatePullRequest={
+            authState.authenticated
+              ? () => {
+                  void handleOpenApprovalDrawer();
+                }
+              : undefined
+          }
           onRegenerateWithAI={
             openAIConfig.configured
               ? () => {
@@ -247,6 +343,38 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
           previewRef={previewRef}
           viewMode={viewMode}
         />
+      ) : null}
+
+      {writeResult ? (
+        <WriteSuccessView
+          onDismiss={() => {
+            setWriteResult(null);
+          }}
+          result={writeResult}
+        />
+      ) : null}
+
+      {writePlan !== null && approvalValues !== null ? (
+        <ApprovalDrawer
+          errorMessage={writeError?.message ?? null}
+          isSubmitting={isSubmitting}
+          onCancel={closeApprovalDrawer}
+          onChange={setApprovalValues}
+          onConfirm={() => {
+            void handleConfirmCreatePullRequest();
+          }}
+          plan={writePlan}
+          values={approvalValues}
+        />
+      ) : null}
+
+      {writeError !== null && writePlan === null && approvalValues === null ? (
+        <p
+          className="rounded-md border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-200"
+          data-testid="write-pipeline-error"
+        >
+          {writeError.message}
+        </p>
       ) : null}
 
       {aiError ? (
