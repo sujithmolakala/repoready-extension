@@ -10,6 +10,7 @@ import { DocumentsView } from "./components/DocumentsView";
 import { useHealthReport } from "./useHealthReport";
 import { useRepoState } from "./useRepoState";
 import { useRepositoryFacts } from "./useRepositoryFacts";
+import { useTabUiState } from "./useTabUiState";
 
 function openOptionsPage(): void {
   void chrome.runtime.openOptionsPage();
@@ -36,6 +37,18 @@ export default function App() {
   } = healthState;
   const pendingFixDocumentType = useRef<DocumentType | null>(null);
 
+  const activeRepositoryKey =
+    repository !== null ? `${repository.owner}/${repository.name}` : repositoryKey;
+
+  const {
+    uiState,
+    isHydrated,
+    toggleCategoryExpanded,
+    toggleInsightSection,
+    setSelectedDocumentType,
+    setDocumentMode,
+  } = useTabUiState(activeRepositoryKey);
+
   const showHealthSection =
     repository &&
     authState.authenticated &&
@@ -45,21 +58,25 @@ export default function App() {
     void chrome.runtime.sendMessage({ type: MessageType.REFRESH_REPOSITORY_FACTS });
   };
 
-  const handleGenerateFix = useCallback((documentType: DocumentType): void => {
-    pendingFixDocumentType.current = documentType;
-    document.getElementById("documents-section")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, []);
+  const handleGenerateFix = useCallback(
+    (documentType: DocumentType): void => {
+      pendingFixDocumentType.current = documentType;
+      setSelectedDocumentType(documentType);
+      document.getElementById("documents-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    },
+    [setSelectedDocumentType],
+  );
 
   return (
-    <main className="flex min-h-screen flex-col bg-slate-950 px-6 py-8 text-white">
-      <div className="flex items-center justify-between gap-3">
+    <main className="flex min-h-screen flex-col overflow-x-hidden bg-slate-950 px-6 py-8 text-white">
+      <div className="flex min-w-0 items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">RepoReady</h1>
         {showHealthSection ? (
           <button
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:opacity-60"
+            className="shrink-0 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:opacity-60"
             disabled={isFactsLoading || isHealthLoading}
             onClick={handleRefresh}
             type="button"
@@ -136,12 +153,23 @@ export default function App() {
           ) : null}
 
           {report ? (
-            <HealthScoreView onGenerateFix={handleGenerateFix} report={report} />
+            <HealthScoreView
+              expandedCategoryIds={uiState.expandedCategoryIds}
+              onGenerateFix={handleGenerateFix}
+              onToggleCategory={toggleCategoryExpanded}
+              report={report}
+            />
           ) : null}
 
           {trend ? <TrendPanel trend={trend} /> : null}
 
-          {insights ? <InsightsPanel insights={insights} /> : null}
+          {insights ? (
+            <InsightsPanel
+              insights={insights}
+              onToggleSection={toggleInsightSection}
+              openSectionIds={uiState.openInsightSectionIds}
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -150,9 +178,14 @@ export default function App() {
           <DocumentsView
             facts={facts}
             initialDocumentType={pendingFixDocumentType.current}
+            isUiHydrated={isHydrated}
+            onDocumentModeChange={setDocumentMode}
             onInitialDocumentTypeConsumed={() => {
               pendingFixDocumentType.current = null;
             }}
+            onSelectedDocumentTypeChange={setSelectedDocumentType}
+            persistedDocumentMode={uiState.documentMode}
+            persistedSelectedDocumentType={uiState.selectedDocumentType}
             report={report}
           />
         </div>

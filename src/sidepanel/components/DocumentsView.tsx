@@ -25,6 +25,7 @@ import {
 } from "../documents/documentDraftState";
 import { openOptionsPage, useAIGeneration } from "../documents/useAIGeneration";
 import { useWritePipeline } from "../documents/useWritePipeline";
+import { PotentialPointsLabel } from "./PotentialPointsLabel";
 import {
   ApprovalDrawer,
   type ApprovalDrawerValues,
@@ -39,6 +40,11 @@ interface DocumentsViewProps {
   report: HealthReport;
   initialDocumentType?: DocumentType | null;
   onInitialDocumentTypeConsumed?: () => void;
+  persistedSelectedDocumentType?: DocumentType | null;
+  persistedDocumentMode?: DraftViewMode;
+  isUiHydrated?: boolean;
+  onSelectedDocumentTypeChange?: (documentType: DocumentType | null) => void;
+  onDocumentModeChange?: (mode: DraftViewMode) => void;
 }
 
 export function DocumentsView({
@@ -46,6 +52,11 @@ export function DocumentsView({
   report,
   initialDocumentType = null,
   onInitialDocumentTypeConsumed,
+  persistedSelectedDocumentType = null,
+  persistedDocumentMode = "preview",
+  isUiHydrated = true,
+  onSelectedDocumentTypeChange,
+  onDocumentModeChange,
 }: DocumentsViewProps) {
   const opportunities = useMemo(
     () => getDocumentOpportunities(facts, report),
@@ -65,7 +76,7 @@ export function DocumentsView({
     clearError: clearWriteError,
   } = useWritePipeline();
   const [draftState, setDraftState] = useState(createInitialDocumentDraftState);
-  const [viewMode, setViewMode] = useState<DraftViewMode>("preview");
+  const [viewMode, setViewMode] = useState<DraftViewMode>(persistedDocumentMode);
   const [previewFocusKey, setPreviewFocusKey] = useState(0);
   const [draftsLoaded, setDraftsLoaded] = useState(false);
   const [userInstructions, setUserInstructions] = useState("");
@@ -109,6 +120,29 @@ export function DocumentsView({
   }, [draftStore, facts.owner, facts.name]);
 
   useEffect(() => {
+    if (!isUiHydrated) {
+      return;
+    }
+
+    setViewMode(persistedDocumentMode);
+  }, [isUiHydrated, persistedDocumentMode, facts.owner, facts.name]);
+
+  useEffect(() => {
+    if (!isUiHydrated || persistedSelectedDocumentType === null) {
+      return;
+    }
+
+    setDraftState((currentState) =>
+      selectDraft(currentState, persistedSelectedDocumentType),
+    );
+  }, [
+    facts.owner,
+    facts.name,
+    isUiHydrated,
+    persistedSelectedDocumentType,
+  ]);
+
+  useEffect(() => {
     if (initialDocumentType === null) {
       return;
     }
@@ -122,10 +156,19 @@ export function DocumentsView({
 
     setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
     setViewMode("preview");
+    onDocumentModeChange?.("preview");
+    onSelectedDocumentTypeChange?.(initialDocumentType);
     setPreviewFocusKey((currentKey) => currentKey + 1);
     clearError();
     onInitialDocumentTypeConsumed?.();
-  }, [facts, initialDocumentType, onInitialDocumentTypeConsumed, clearError]);
+  }, [
+    facts,
+    initialDocumentType,
+    onDocumentModeChange,
+    onInitialDocumentTypeConsumed,
+    onSelectedDocumentTypeChange,
+    clearError,
+  ]);
 
   useEffect(() => {
     if (!draftsLoaded) {
@@ -166,6 +209,8 @@ export function DocumentsView({
 
     setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
     setViewMode("preview");
+    onDocumentModeChange?.("preview");
+    onSelectedDocumentTypeChange?.(documentType);
     setPreviewFocusKey((currentKey) => currentKey + 1);
     clearError();
   }
@@ -214,11 +259,14 @@ export function DocumentsView({
         : storeGeneratedDraft(currentState, draft),
     );
     setViewMode("preview");
+    onDocumentModeChange?.("preview");
+    onSelectedDocumentTypeChange?.(draft.documentType);
     setPreviewFocusKey((currentKey) => currentKey + 1);
   }
 
   function handlePreviewDraft(documentType: DocumentType): void {
     setDraftState((currentState) => selectDraft(currentState, documentType));
+    onSelectedDocumentTypeChange?.(documentType);
     setPreviewFocusKey((currentKey) => currentKey + 1);
   }
 
@@ -365,7 +413,10 @@ export function DocumentsView({
               : undefined
           }
           onReset={handleResetDraft}
-          onViewModeChange={setViewMode}
+          onViewModeChange={(mode) => {
+            setViewMode(mode);
+            onDocumentModeChange?.(mode);
+          }}
           previewRef={previewRef}
           viewMode={viewMode}
         />
@@ -512,17 +563,20 @@ export function DocumentOpportunityCard({
   onOpenSettings: () => void;
 }) {
   return (
-    <li className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-100">
+    <li
+      className="overflow-hidden rounded-md border border-slate-800 bg-slate-950/70 p-3"
+      data-testid="document-opportunity-card"
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-medium text-slate-100">
             {opportunity.displayName}
           </p>
-          <p className="mt-1 text-xs text-slate-500">{opportunity.destinationPath}</p>
+          <p className="mt-1 break-all text-xs text-slate-500">
+            {opportunity.destinationPath}
+          </p>
         </div>
-        <p className="text-xs text-slate-400">
-          Up to {opportunity.potentialPoints} pts
-        </p>
+        <PotentialPointsLabel points={opportunity.potentialPoints} />
       </div>
 
       <p className="mt-2 text-xs text-slate-400">{opportunity.reason}</p>

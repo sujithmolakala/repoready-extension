@@ -27,7 +27,15 @@ function statusClass(status: CheckStatus): string {
   }
 }
 
-export function InsightsPanel({ insights }: { insights: RepositoryInsights }) {
+export function InsightsPanel({
+  insights,
+  openSectionIds,
+  onToggleSection,
+}: {
+  insights: RepositoryInsights;
+  openSectionIds: readonly string[];
+  onToggleSection: (sectionId: string, open: boolean) => void;
+}) {
   return (
     <section className="space-y-3">
       <div>
@@ -42,7 +50,10 @@ export function InsightsPanel({ insights }: { insights: RepositoryInsights }) {
         <details
           className="rounded-md border border-slate-800 bg-slate-950/70"
           key={section.categoryId}
-          open={section.categoryId === "language"}
+          onToggle={(event) => {
+            onToggleSection(section.categoryId, event.currentTarget.open);
+          }}
+          open={openSectionIds.includes(section.categoryId)}
         >
           <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-slate-200">
             {section.categoryLabel}

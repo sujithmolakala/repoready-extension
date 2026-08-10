@@ -8,6 +8,8 @@ import type {
 } from "../../domain/models/healthReport";
 import type { DocumentType } from "../../domain/models/documentType";
 import { mapRecommendationToDocumentTypes } from "../../domain/documents/recommendation-mapping";
+import { CardActionLayout } from "./CardActionLayout";
+import { PotentialPointsLabel } from "./PotentialPointsLabel";
 import { CategoryProgressBar, ScoreRing } from "./ScoreRing";
 
 function statusLabel(status: CheckResult["status"]): string {
@@ -49,16 +51,20 @@ function statusPrefix(status: CheckResult["status"]): string {
   }
 }
 
-function CategoryCard({ category }: { category: PluginResult }) {
-  const [expanded, setExpanded] = useState(false);
-
+function CategoryCard({
+  category,
+  expanded,
+  onToggle,
+}: {
+  category: PluginResult;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
     <section className="rounded-md border border-slate-800 bg-slate-950/70">
       <button
         className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
-        onClick={() => {
-          setExpanded((value) => !value);
-        }}
+        onClick={onToggle}
         type="button"
       >
         <div className="min-w-0 flex-1">
@@ -83,13 +89,13 @@ function CategoryCard({ category }: { category: PluginResult }) {
               key={check.id}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-sm text-slate-200">
+                <p className="min-w-0 break-words text-sm text-slate-200">
                   <span className="mr-2 font-mono text-xs text-slate-500">
                     {statusPrefix(check.status)}
                   </span>
                   {check.label}
                 </p>
-                <span className={`text-xs font-medium ${statusClass(check.status)}`}>
+                <span className={`shrink-0 text-xs font-medium ${statusClass(check.status)}`}>
                   {statusLabel(check.status)}
                 </span>
               </div>
@@ -107,9 +113,13 @@ function CategoryCard({ category }: { category: PluginResult }) {
 
 export function HealthScoreView({
   report,
+  expandedCategoryIds,
+  onToggleCategory,
   onGenerateFix,
 }: {
   report: HealthReport;
+  expandedCategoryIds: readonly string[];
+  onToggleCategory: (categoryId: string) => void;
   onGenerateFix?: (documentType: DocumentType) => void;
 }) {
   return (
@@ -120,7 +130,14 @@ export function HealthScoreView({
 
       <div className="space-y-3">
         {report.categories.map((category) => (
-          <CategoryCard category={category} key={category.categoryId} />
+          <CategoryCard
+            category={category}
+            expanded={expandedCategoryIds.includes(category.categoryId)}
+            key={category.categoryId}
+            onToggle={() => {
+              onToggleCategory(category.categoryId);
+            }}
+          />
         ))}
       </div>
 
@@ -154,29 +171,42 @@ function RecommendationRow({
   const primaryDocumentType = documentTypes[0];
 
   return (
-    <li className="rounded-md border border-slate-800/80 px-3 py-2">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-200">{recommendation.title}</p>
-          <p className="mt-1 text-xs text-slate-400">
-            {recommendation.description}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Up to {recommendation.potentialPoints} points
-          </p>
-        </div>
-        {canGenerateFix ? (
-          <button
-            className="shrink-0 rounded-md border border-emerald-700 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:border-emerald-500"
-            onClick={() => {
-              onGenerateFix(primaryDocumentType);
-            }}
-            type="button"
-          >
-            Generate fix
-          </button>
-        ) : null}
-      </div>
+    <li
+      className="overflow-hidden rounded-md border border-slate-800/80 px-3 py-2"
+      data-testid="recommendation-card"
+    >
+      <CardActionLayout
+        actions={
+          canGenerateFix ? (
+            <button
+              className="max-w-full rounded-md border border-emerald-700 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:border-emerald-500"
+              data-testid="generate-fix-button"
+              onClick={() => {
+                onGenerateFix(primaryDocumentType);
+              }}
+              type="button"
+            >
+              Generate fix
+            </button>
+          ) : undefined
+        }
+        content={
+          <>
+            <p className="break-words text-sm text-slate-200">
+              {recommendation.title}
+            </p>
+            <p className="mt-1 break-words text-xs text-slate-400">
+              {recommendation.description}
+            </p>
+            <div className="mt-1">
+              <PotentialPointsLabel
+                points={recommendation.potentialPoints}
+                suffix="points"
+              />
+            </div>
+          </>
+        }
+      />
     </li>
   );
 }

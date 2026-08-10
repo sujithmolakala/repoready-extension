@@ -56,6 +56,8 @@ import {
   createRepositoryFactsHandlers,
 } from "./repository-facts-handlers";
 import { createBackgroundRefreshServices } from "./backgroundRefresh";
+import { SidePanelControl, registerSidePanelControl } from "./sidePanelControl";
+import { TabUiStateStore } from "../infrastructure/storage/TabUiStateStore";
 
 console.info("[RepoReady] Background service worker started");
 
@@ -139,9 +141,10 @@ const repositoryFactsHandlers = createRepositoryFactsHandlers(
   },
 );
 
-chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
+const tabUiStateStore = new TabUiStateStore();
+const sidePanelControl = new SidePanelControl(tabUiStateStore);
+registerSidePanelControl(sidePanelControl);
+void sidePanelControl.initialize();
 
 function notifySidePanel(repository: GetRepoStateResponse["repository"]): void {
   const message: RepoStateUpdatedMessage = {
@@ -409,4 +412,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   repoStateStore.delete(tabId);
   repositoryFactsStore.clear(tabId);
   healthReportStore.clear(tabId);
+  void sidePanelControl.handleTabRemoved(tabId);
 });
