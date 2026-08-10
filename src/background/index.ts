@@ -61,7 +61,18 @@ import { TabUiStateStore } from "../infrastructure/storage/TabUiStateStore";
 
 console.info("[RepoReady] Background service worker started");
 
+const tabUiStateStore = new TabUiStateStore();
+const sidePanelControl = new SidePanelControl(tabUiStateStore);
+
 const repoStateStore = new RepoStateStore();
+registerSidePanelControl(sidePanelControl, () => {
+  void sidePanelControl.restoreAvailability(
+    (tabId) => repoStateStore.get(tabId) !== null,
+  );
+});
+void sidePanelControl.restoreAvailability(
+  (tabId) => repoStateStore.get(tabId) !== null,
+);
 const repositoryFactsStore = new RepositoryFactsStore();
 const healthReportStore = new HealthReportStore();
 const tokenStore = new TokenStore();
@@ -141,11 +152,6 @@ const repositoryFactsHandlers = createRepositoryFactsHandlers(
   },
 );
 
-const tabUiStateStore = new TabUiStateStore();
-const sidePanelControl = new SidePanelControl(tabUiStateStore);
-registerSidePanelControl(sidePanelControl);
-void sidePanelControl.initialize();
-
 function notifySidePanel(repository: GetRepoStateResponse["repository"]): void {
   const message: RepoStateUpdatedMessage = {
     type: MessageType.REPO_STATE_UPDATED,
@@ -202,6 +208,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (tabId !== undefined) {
       repoStateStore.set(tabId, message.payload.repository);
+      void sidePanelControl.configurePanelAvailability(tabId);
       void notifySidePanelForActiveTab();
       void repositoryFactsHandlers.collectForTab(
         tabId,
