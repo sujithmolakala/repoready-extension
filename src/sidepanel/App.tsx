@@ -1,5 +1,11 @@
+import { useCallback, useRef } from "react";
+
 import { useAuthState } from "../shared/hooks/useAuthState";
+import type { DocumentType } from "../domain/models/documentType";
+import { MessageType } from "../shared/messages";
 import { DebugFactsPanel, HealthScoreView } from "./components/HealthScoreView";
+import { InsightsPanel } from "./components/InsightsPanel";
+import { TrendPanel } from "./components/TrendPanel";
 import { DocumentsView } from "./components/DocumentsView";
 import { useHealthReport } from "./useHealthReport";
 import { useRepoState } from "./useRepoState";
@@ -19,21 +25,49 @@ export default function App() {
     error: factsError,
     repositoryKey,
   } = useRepositoryFacts();
+  const healthState = useHealthReport();
   const {
     report,
+    insights,
+    trend,
     isLoading: isHealthLoading,
     error: healthError,
     repositoryKey: healthRepositoryKey,
-  } = useHealthReport();
+  } = healthState;
+  const pendingFixDocumentType = useRef<DocumentType | null>(null);
 
   const showHealthSection =
     repository &&
     authState.authenticated &&
     healthRepositoryKey === `${repository.owner}/${repository.name}`;
 
+  const handleRefresh = (): void => {
+    void chrome.runtime.sendMessage({ type: MessageType.REFRESH_REPOSITORY_FACTS });
+  };
+
+  const handleGenerateFix = useCallback((documentType: DocumentType): void => {
+    pendingFixDocumentType.current = documentType;
+    document.getElementById("documents-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
+
   return (
     <main className="flex min-h-screen flex-col bg-slate-950 px-6 py-8 text-white">
-      <h1 className="text-2xl font-semibold tracking-tight">RepoReady</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">RepoReady</h1>
+        {showHealthSection ? (
+          <button
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:border-slate-500 disabled:opacity-60"
+            disabled={isFactsLoading || isHealthLoading}
+            onClick={handleRefresh}
+            type="button"
+          >
+            {isFactsLoading ? "Refreshing…" : "Refresh analysis"}
+          </button>
+        ) : null}
+      </div>
 
       <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
         {isAuthLoading ? (
@@ -87,7 +121,10 @@ export default function App() {
       </section>
 
       {showHealthSection ? (
-        <section className="mt-6 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+        <section className="mt-6 space-y-4 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+          {isFactsLoading ? (
+            <p className="text-sm text-slate-400">Analyzing repository…</p>
+          ) : null}
           {isHealthLoading || (report === null && healthError === null) ? (
             <p className="text-sm text-slate-400">
               Evaluating repository health…
@@ -98,12 +135,27 @@ export default function App() {
             <p className="text-sm text-red-300">{healthError}</p>
           ) : null}
 
-          {report ? <HealthScoreView report={report} /> : null}
+          {report ? (
+            <HealthScoreView onGenerateFix={handleGenerateFix} report={report} />
+          ) : null}
+
+          {trend ? <TrendPanel trend={trend} /> : null}
+
+          {insights ? <InsightsPanel insights={insights} /> : null}
         </section>
       ) : null}
 
       {showHealthSection && report && facts ? (
-        <DocumentsView facts={facts} report={report} />
+        <div id="documents-section">
+          <DocumentsView
+            facts={facts}
+            initialDocumentType={pendingFixDocumentType.current}
+            onInitialDocumentTypeConsumed={() => {
+              pendingFixDocumentType.current = null;
+            }}
+            report={report}
+          />
+        </div>
       ) : null}
 
       {repository && authState.authenticated && repositoryKey ? (

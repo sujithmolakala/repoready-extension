@@ -1,11 +1,16 @@
+import { useEffect, useState } from "react";
 import { ConnectedView } from "./components/ConnectedView";
 import { DisconnectedView } from "./components/DisconnectedView";
 import { OpenAIConnectedView } from "./components/OpenAIConnectedView";
 import { OpenAIDisconnectedView } from "./components/OpenAISettingsSection";
 import { useAuthActions } from "./useAuthActions";
 import { useOpenAIActions } from "./useOpenAIActions";
-import { useAuthState } from "../shared/hooks/useAuthState";
+import {
+  BACKGROUND_REFRESH_SETTINGS_KEY,
+  setBackgroundRefreshEnabled,
+} from "../background/backgroundRefresh";
 import { useOpenAIConfig } from "../shared/hooks/useOpenAIConfig";
+import { useAuthState } from "../shared/hooks/useAuthState";
 
 export default function App() {
   const { authState, isLoading } = useAuthState();
@@ -19,6 +24,24 @@ export default function App() {
     disconnectOpenAI,
     clearError: clearOpenAIError,
   } = useOpenAIActions();
+
+  const [backgroundRefreshEnabled, setBackgroundRefreshEnabledState] =
+    useState(false);
+
+  useEffect(() => {
+    void chrome.storage.local
+      .get(BACKGROUND_REFRESH_SETTINGS_KEY)
+      .then((result) => {
+        setBackgroundRefreshEnabledState(
+          result[BACKGROUND_REFRESH_SETTINGS_KEY] === true,
+        );
+      });
+  }, []);
+
+  const handleBackgroundRefreshToggle = (enabled: boolean): void => {
+    setBackgroundRefreshEnabledState(enabled);
+    void setBackgroundRefreshEnabled(enabled);
+  };
 
   const handleConnect = (token: string): void => {
     void connectGitHub(token);
@@ -84,6 +107,32 @@ export default function App() {
                 onConnect={handleOpenAIConnect}
               />
             )}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-base font-medium text-slate-900">Performance</h2>
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+            <label className="flex items-start gap-3">
+              <input
+                checked={backgroundRefreshEnabled}
+                className="mt-1"
+                onChange={(event) => {
+                  handleBackgroundRefreshToggle(event.target.checked);
+                }}
+                type="checkbox"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">
+                  Background repository refresh
+                </span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  Off by default. When enabled, RepoReady periodically refreshes
+                  recently analyzed repositories every few hours. No AI calls or
+                  GitHub writes are performed.
+                </span>
+              </span>
+            </label>
           </div>
         </section>
       </div>

@@ -20,7 +20,8 @@ export function createRepositoryFactsHandlers(
   onFactsCollected?: (
     tabId: number,
     facts: import("../domain/models/repositoryFacts").RepositoryFacts,
-  ) => void,
+    options?: { forceHistory?: boolean },
+  ) => void | Promise<void>,
   onFactsCleared?: (tabId: number) => void,
 ) {
   function handleGetRepositoryFacts(
@@ -36,6 +37,7 @@ export function createRepositoryFactsHandlers(
   async function collectForTab(
     tabId: number,
     repository: GitHubRepository | null,
+    options?: { forceRefresh?: boolean; forceHistory?: boolean },
   ): Promise<void> {
     if (repository === null) {
       repositoryFactsStore.clear(tabId);
@@ -49,18 +51,23 @@ export function createRepositoryFactsHandlers(
     broadcastFactsState(repositoryFactsStore.get(tabId));
 
     try {
-      const facts = await collectRepositoryFactsUseCase.execute(repository);
+      const facts = await collectRepositoryFactsUseCase.execute(repository, {
+        forceRefresh: options?.forceRefresh ?? false,
+      });
       repositoryFactsStore.setFacts(tabId, key, facts);
 
       if (import.meta.env.DEV) {
         console.info("[RepoReady Facts Diagnostic]", {
           repositoryKey: key,
           approximateCacheSizeBytes: estimateSerializedFactsBytes(facts),
+          fromCache: !(options?.forceRefresh ?? false),
         });
       }
 
       broadcastFactsState(repositoryFactsStore.get(tabId));
-      onFactsCollected?.(tabId, facts);
+      await onFactsCollected?.(tabId, facts, {
+        forceHistory: options?.forceHistory ?? options?.forceRefresh ?? false,
+      });
     } catch (error) {
       const message =
         error instanceof AuthError

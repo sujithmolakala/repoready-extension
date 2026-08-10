@@ -5,7 +5,7 @@ export default defineManifest({
   name: "RepoReady",
   description: "Analyze GitHub repository health and generate missing documentation.",
   version: "0.1.0",
-  permissions: ["sidePanel", "storage"],
+  permissions: ["sidePanel", "storage", "alarms"],
   host_permissions: [
     "https://github.com/*",
     "https://api.github.com/*",

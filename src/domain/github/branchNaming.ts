@@ -9,6 +9,10 @@ const DOCUMENT_BRANCH_SUFFIXES: Record<DocumentType, string> = {
   ISSUE_TEMPLATE_BUG: "issue-template-bug",
   ISSUE_TEMPLATE_FEATURE: "issue-template-feature",
   PULL_REQUEST_TEMPLATE: "pull-request-template",
+  README_IMPROVEMENT: "readme",
+  README_SETUP: "readme-setup",
+  README_TESTING: "readme-testing",
+  DOCUMENTATION: "documentation",
 };
 
 const BRANCH_PREFIX = "repoready/docs";

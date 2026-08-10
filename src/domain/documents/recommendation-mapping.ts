@@ -11,9 +11,16 @@ const RECOMMENDATION_TO_DOCUMENT_TYPES: Record<
   changelog: ["CHANGELOG"],
   "issue-template": ["ISSUE_TEMPLATE_BUG", "ISSUE_TEMPLATE_FEATURE"],
   "pull-request-template": ["PULL_REQUEST_TEMPLATE"],
-  readme: [],
-  documentation: [],
+  readme: ["README_IMPROVEMENT"],
+  documentation: ["DOCUMENTATION"],
   license: [],
+};
+
+const RECOMMENDATION_ID_OVERRIDES: Record<string, DocumentType[]> = {
+  "documentation-add-setup-section": ["README_SETUP"],
+  "documentation-add-testing-section": ["README_TESTING"],
+  "documentation-add-usage-section": ["README_IMPROVEMENT"],
+  "documentation-add-readme": ["README_IMPROVEMENT"],
 };
 
 export function mapRecommendationToDocumentTypes(
@@ -21,6 +28,10 @@ export function mapRecommendationToDocumentTypes(
 ): DocumentType[] {
   if (recommendation.actionType !== "generate-document") {
     return [];
+  }
+
+  if (Object.hasOwn(RECOMMENDATION_ID_OVERRIDES, recommendation.id)) {
+    return [...RECOMMENDATION_ID_OVERRIDES[recommendation.id]];
   }
 
   const relatedDocumentType = recommendation.relatedDocumentType;

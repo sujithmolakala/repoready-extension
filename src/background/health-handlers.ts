@@ -1,4 +1,4 @@
-import { EvaluateHealthUseCase } from "../application/EvaluateHealthUseCase";
+import { AnalyzeRepositoryUseCase } from "../application/AnalyzeRepositoryUseCase";
 import { HealthReportStore } from "../application/health-report-store";
 import { repositoryKey } from "../application/repository-facts-store";
 import type { RepositoryFacts } from "../domain/models/repositoryFacts";
@@ -10,7 +10,7 @@ import {
 } from "../shared/messages";
 
 export function createHealthReportHandlers(
-  evaluateHealthUseCase: EvaluateHealthUseCase,
+  analyzeRepositoryUseCase: AnalyzeRepositoryUseCase,
   healthReportStore: HealthReportStore,
   broadcastHealthReport: (
     healthState: GetHealthReportResponse["healthState"],
@@ -26,14 +26,24 @@ export function createHealthReportHandlers(
     return { healthState: healthReportStore.get(tabId) };
   }
 
-  function evaluateForTab(tabId: number, facts: RepositoryFacts): void {
+  async function evaluateForTab(
+    tabId: number,
+    facts: RepositoryFacts,
+    options?: { forceHistory?: boolean },
+  ): Promise<void> {
     const key = repositoryKey(facts.owner, facts.name);
     healthReportStore.setLoading(tabId, key);
     broadcastHealthReport(healthReportStore.get(tabId));
 
     try {
-      const report = evaluateHealthUseCase.execute(facts);
-      healthReportStore.setReport(tabId, key, report);
+      const analysis = await analyzeRepositoryUseCase.execute(facts, options);
+      healthReportStore.setAnalysis(
+        tabId,
+        key,
+        analysis.report,
+        analysis.insights,
+        analysis.trend,
+      );
       broadcastHealthReport(healthReportStore.get(tabId));
     } catch {
       healthReportStore.setError(

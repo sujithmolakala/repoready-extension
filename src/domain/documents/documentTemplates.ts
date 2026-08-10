@@ -3,8 +3,14 @@ import type { DocumentTemplate } from "./template-types";
 import { changelogTemplate } from "./templates/changelogTemplate";
 import { codeOfConductTemplate } from "./templates/codeOfConductTemplate";
 import { contributingTemplate } from "./templates/contributingTemplate";
+import { gettingStartedTemplate } from "./templates/gettingStartedTemplate";
 import { issueTemplateBug, issueTemplateFeature } from "./templates/issueTemplates";
 import { pullRequestTemplate } from "./templates/pullRequestTemplate";
+import {
+  readmeImprovementTemplate,
+  readmeSetupTemplate,
+  readmeTestingTemplate,
+} from "./templates/readmeImprovementTemplate";
 import { securityTemplate } from "./templates/securityTemplate";
 
 export const documentTemplates: readonly DocumentTemplate[] = [
@@ -15,6 +21,10 @@ export const documentTemplates: readonly DocumentTemplate[] = [
   issueTemplateBug,
   issueTemplateFeature,
   pullRequestTemplate,
+  readmeImprovementTemplate,
+  readmeSetupTemplate,
+  readmeTestingTemplate,
+  gettingStartedTemplate,
 ];
 
 const templatesByType = new Map<DocumentType, DocumentTemplate>(

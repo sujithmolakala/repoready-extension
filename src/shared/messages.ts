@@ -30,6 +30,7 @@ export const MessageType = {
   GENERATE_DOCUMENT_WITH_AI: "GENERATE_DOCUMENT_WITH_AI",
   PREPARE_WRITE_PLAN: "PREPARE_WRITE_PLAN",
   CREATE_PULL_REQUEST: "CREATE_PULL_REQUEST",
+  REFRESH_REPOSITORY_FACTS: "REFRESH_REPOSITORY_FACTS",
 } as const;
 
 export type MessageType = (typeof MessageType)[keyof typeof MessageType];
@@ -143,6 +144,10 @@ export interface PrepareWritePlanPayload {
   destinationPath?: string;
 }
 
+export interface RefreshRepositoryFactsMessage {
+  type: typeof MessageType.REFRESH_REPOSITORY_FACTS;
+}
+
 export interface CreatePullRequestMessage {
   type: typeof MessageType.CREATE_PULL_REQUEST;
   payload: CreatePullRequestPayload;
@@ -176,7 +181,8 @@ export type ExtensionMessage =
   | DisconnectOpenAIMessage
   | GenerateDocumentWithAIMessage
   | PrepareWritePlanMessage
-  | CreatePullRequestMessage;
+  | CreatePullRequestMessage
+  | RefreshRepositoryFactsMessage;
 
 export interface GetRepoStateResponse {
   repository: import("../domain/repository").GitHubRepository | null;
@@ -354,7 +360,9 @@ export function isHealthReportState(
     (typeof state.repositoryKey === "string" || state.repositoryKey === null) &&
     typeof state.isLoading === "boolean" &&
     (typeof state.error === "string" || state.error === null) &&
-    (state.report === null || isHealthReport(state.report))
+    (state.report === null || isHealthReport(state.report)) &&
+    (state.insights === null || typeof state.insights === "object") &&
+    (state.trend === null || isScoreTrend(state.trend))
   );
 }
 
@@ -375,6 +383,21 @@ export function isHealthReport(
     typeof report.analyzedAt === "string" &&
     Array.isArray(report.categories) &&
     Array.isArray(report.recommendations)
+  );
+}
+
+function isScoreTrend(value: unknown): value is import("../domain/models/healthHistory").ScoreTrend {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const trend = value as Record<string, unknown>;
+
+  return (
+    typeof trend.currentScore === "number" &&
+    (typeof trend.previousScore === "number" || trend.previousScore === null) &&
+    (typeof trend.change === "number" || trend.change === null) &&
+    Array.isArray(trend.snapshots)
   );
 }
 
@@ -558,6 +581,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     messageType === MessageType.DISCONNECT_OPENAI ||
     messageType === MessageType.GENERATE_DOCUMENT_WITH_AI ||
     messageType === MessageType.PREPARE_WRITE_PLAN ||
-    messageType === MessageType.CREATE_PULL_REQUEST
+    messageType === MessageType.CREATE_PULL_REQUEST ||
+    messageType === MessageType.REFRESH_REPOSITORY_FACTS
   );
 }

@@ -1,5 +1,7 @@
 import type { RecommendationDocumentType } from "./documentType";
 import type { RepositoryFacts } from "./repositoryFacts";
+import type { RepositoryInsights } from "../insights/types";
+import type { ScoreTrend } from "./healthHistory";
 
 export type CheckStatus = "passed" | "failed" | "undetermined";
 
@@ -47,6 +49,8 @@ export interface HealthReport {
 export interface HealthReportState {
   repositoryKey: string | null;
   report: HealthReport | null;
+  insights: RepositoryInsights | null;
+  trend: ScoreTrend | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -54,6 +58,8 @@ export interface HealthReportState {
 export const emptyHealthReportState: HealthReportState = {
   repositoryKey: null,
   report: null,
+  insights: null,
+  trend: null,
   isLoading: false,
   error: null,
 };

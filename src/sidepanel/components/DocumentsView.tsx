@@ -37,9 +37,16 @@ const generateDocumentUseCase = new GenerateDocumentUseCase();
 interface DocumentsViewProps {
   facts: RepositoryFacts;
   report: HealthReport;
+  initialDocumentType?: DocumentType | null;
+  onInitialDocumentTypeConsumed?: () => void;
 }
 
-export function DocumentsView({ facts, report }: DocumentsViewProps) {
+export function DocumentsView({
+  facts,
+  report,
+  initialDocumentType = null,
+  onInitialDocumentTypeConsumed,
+}: DocumentsViewProps) {
   const opportunities = useMemo(
     () => getDocumentOpportunities(facts, report),
     [facts, report],
@@ -100,6 +107,25 @@ export function DocumentsView({ facts, report }: DocumentsViewProps) {
       cancelled = true;
     };
   }, [draftStore, facts.owner, facts.name]);
+
+  useEffect(() => {
+    if (initialDocumentType === null) {
+      return;
+    }
+
+    const draft = generateDocumentUseCase.execute({
+      owner: facts.owner,
+      repo: facts.name,
+      documentType: initialDocumentType,
+      facts,
+    });
+
+    setDraftState((currentState) => storeGeneratedDraft(currentState, draft));
+    setViewMode("preview");
+    setPreviewFocusKey((currentKey) => currentKey + 1);
+    clearError();
+    onInitialDocumentTypeConsumed?.();
+  }, [facts, initialDocumentType, onInitialDocumentTypeConsumed, clearError]);
 
   useEffect(() => {
     if (!draftsLoaded) {

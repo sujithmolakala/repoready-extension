@@ -1,5 +1,5 @@
+import { AnalyzeRepositoryUseCase } from "../application/AnalyzeRepositoryUseCase";
 import { RepoStateStore } from "../application/repo-state-store";
-import { CollectRepositoryFactsUseCase } from "../application/CollectRepositoryFactsUseCase";
 import { DisconnectGitHubUseCase } from "../application/DisconnectGitHubUseCase";
 import { DisconnectOpenAIUseCase } from "../application/DisconnectOpenAIUseCase";
 import { EvaluateHealthUseCase } from "../application/EvaluateHealthUseCase";
@@ -24,6 +24,8 @@ import { GitHubWriterImpl } from "../infrastructure/github/GitHubWriterImpl";
 import { FactCollector } from "../infrastructure/github/FactCollector";
 import { GitHubClient } from "../infrastructure/github/GitHubClient";
 import { OpenAIKeyStore } from "../infrastructure/storage/OpenAIKeyStore";
+import { HealthScoreHistoryStore } from "../infrastructure/storage/HealthScoreHistoryStore";
+import { RepositoryFactsCacheStore } from "../infrastructure/storage/RepositoryFactsCacheStore";
 import { TokenStore } from "../infrastructure/storage/TokenStore";
 import {
   MessageType,
@@ -53,6 +55,7 @@ import {
   createRepositoryFactsBroadcaster,
   createRepositoryFactsHandlers,
 } from "./repository-facts-handlers";
+import { createBackgroundRefreshServices } from "./backgroundRefresh";
 
 console.info("[RepoReady] Background service worker started");
 
@@ -87,17 +90,25 @@ const prepareWritePlanApplicationUseCase = new PrepareWritePlanApplicationUseCas
   gitHubWriter,
 );
 const createPullRequestUseCase = new CreatePullRequestUseCase(gitHubWriter);
-const collectRepositoryFactsUseCase = new CollectRepositoryFactsUseCase(
-  factCollector,
+const repositoryFactsCacheStore = new RepositoryFactsCacheStore();
+const healthScoreHistoryStore = new HealthScoreHistoryStore();
+const collectRepositoryFactsUseCase = createBackgroundRefreshServices(
   authProvider,
+  factCollector,
+  githubClient,
+  repositoryFactsCacheStore,
 );
 const evaluateHealthUseCase = new EvaluateHealthUseCase();
+const analyzeRepositoryUseCase = new AnalyzeRepositoryUseCase(
+  evaluateHealthUseCase,
+  healthScoreHistoryStore,
+);
 const broadcastAuthState = createAuthStateBroadcaster();
 const broadcastOpenAIConfig = createOpenAIConfigBroadcaster();
 const broadcastRepositoryFacts = createRepositoryFactsBroadcaster();
 const broadcastHealthReport = createHealthReportBroadcaster();
 const healthReportHandlers = createHealthReportHandlers(
-  evaluateHealthUseCase,
+  analyzeRepositoryUseCase,
   healthReportStore,
   broadcastHealthReport,
 );
@@ -122,9 +133,7 @@ const repositoryFactsHandlers = createRepositoryFactsHandlers(
   collectRepositoryFactsUseCase,
   repositoryFactsStore,
   broadcastRepositoryFacts,
-  (tabId, facts) => {
-    healthReportHandlers.evaluateForTab(tabId, facts);
-  },
+  (tabId, facts, options) => healthReportHandlers.evaluateForTab(tabId, facts, options),
   (tabId) => {
     healthReportHandlers.clearForTab(tabId);
   },
@@ -369,6 +378,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
 
     return true;
+  }
+
+  if (message.type === MessageType.REFRESH_REPOSITORY_FACTS) {
+    void getActiveTab().then((activeTab) => {
+      if (activeTab?.id === undefined) {
+        return;
+      }
+
+      const repository = repoStateStore.get(activeTab.id);
+      void repositoryFactsHandlers.collectForTab(activeTab.id, repository, {
+        forceRefresh: true,
+        forceHistory: true,
+      });
+    });
+
+    return false;
   }
 
   return false;

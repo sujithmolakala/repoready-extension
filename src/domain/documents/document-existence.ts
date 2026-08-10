@@ -1,5 +1,5 @@
 import type { DocumentType } from "../models/documentType";
-import { getDocumentDestinationPath } from "../models/documentType";
+import { getDocumentDestinationPath, isReadmeImprovementType } from "../models/documentType";
 import type { RepositoryFacts } from "../models/repositoryFacts";
 import {
   hasRepositoryFileInLocations,
@@ -11,6 +11,10 @@ export function documentExistsAtDestination(
   facts: RepositoryFacts,
   documentType: DocumentType,
 ): boolean {
+  if (isReadmeImprovementType(documentType)) {
+    return false;
+  }
+
   const destinationPath = getDocumentDestinationPath(documentType);
 
   if (pathExists(facts, destinationPath)) {
@@ -65,6 +69,12 @@ function hasAlternatePaths(
             entry.type === "dir" && entry.path === ".github/PULL_REQUEST_TEMPLATE",
         )
       );
+    case "DOCUMENTATION":
+      return pathExists(facts, "docs/getting-started.md");
+    case "README_IMPROVEMENT":
+    case "README_SETUP":
+    case "README_TESTING":
+      return false;
   }
 }
 

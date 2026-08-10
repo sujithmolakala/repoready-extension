@@ -3,6 +3,8 @@ import type {
   HealthReportState,
 } from "../domain/models/healthReport";
 import { emptyHealthReportState } from "../domain/models/healthReport";
+import type { RepositoryInsights } from "../domain/insights/types";
+import type { ScoreTrend } from "../domain/models/healthHistory";
 
 export class HealthReportStore {
   private readonly stateByTabId = new Map<number, HealthReportState>();
@@ -15,15 +17,25 @@ export class HealthReportStore {
     this.stateByTabId.set(tabId, {
       repositoryKey: key,
       report: null,
+      insights: null,
+      trend: null,
       isLoading: true,
       error: null,
     });
   }
 
-  setReport(tabId: number, key: string, report: HealthReport): void {
+  setAnalysis(
+    tabId: number,
+    key: string,
+    report: HealthReport,
+    insights: RepositoryInsights,
+    trend: ScoreTrend,
+  ): void {
     this.stateByTabId.set(tabId, {
       repositoryKey: key,
       report,
+      insights,
+      trend,
       isLoading: false,
       error: null,
     });
@@ -33,6 +45,8 @@ export class HealthReportStore {
     this.stateByTabId.set(tabId, {
       repositoryKey: key,
       report: null,
+      insights: null,
+      trend: null,
       isLoading: false,
       error,
     });

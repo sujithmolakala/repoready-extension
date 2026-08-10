@@ -237,7 +237,9 @@ describe("Recommendation to document mapping", () => {
     expect(
       mapRelatedDocumentTypeToDocumentTypes("issue-template"),
     ).toEqual(["ISSUE_TEMPLATE_BUG", "ISSUE_TEMPLATE_FEATURE"]);
-    expect(mapRelatedDocumentTypeToDocumentTypes("readme")).toEqual([]);
+    expect(mapRelatedDocumentTypeToDocumentTypes("readme")).toEqual([
+      "README_IMPROVEMENT",
+    ]);
   });
 
   it("ignores manual-fix recommendations", () => {
