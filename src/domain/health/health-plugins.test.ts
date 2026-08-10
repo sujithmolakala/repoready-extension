@@ -276,7 +276,7 @@ describe("RepoReady score sanity check", () => {
       (category) => category.categoryId === "community-standards",
     );
 
-    expect(documentation?.pointsAwarded).toBe(12);
+    expect(documentation?.pointsAwarded).toBe(22);
     expect(documentation?.maxPoints).toBe(25);
     expect(community?.pointsAwarded).toBe(0);
     expect(community?.maxPoints).toBe(20);

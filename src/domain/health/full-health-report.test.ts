@@ -475,8 +475,8 @@ describe("RepoReady full score sanity check", () => {
     const report = analyzeWithPlugins(facts, defaultHealthPlugins);
 
     expect(report.maxScore).toBe(100);
-    expect(report.totalScore).toBe(47);
-    expect(report.categories.find((c) => c.categoryId === "documentation")?.pointsAwarded).toBe(12);
+    expect(report.totalScore).toBe(57);
+    expect(report.categories.find((c) => c.categoryId === "documentation")?.pointsAwarded).toBe(22);
     expect(report.categories.find((c) => c.categoryId === "community-standards")?.pointsAwarded).toBe(0);
     expect(report.categories.find((c) => c.categoryId === "project-structure")?.pointsAwarded).toBe(20);
     expect(report.categories.find((c) => c.categoryId === "testing")?.pointsAwarded).toBe(15);
